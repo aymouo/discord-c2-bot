@@ -38,9 +38,6 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                add(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-            }
         }
     }
 
