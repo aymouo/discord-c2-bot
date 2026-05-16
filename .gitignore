@@ -4,9 +4,15 @@
 /.idea
 .DS_Store
 /build
+app/build
 /captures
 .externalNativeBuild
 .cxx
 *.apk
 *.keystore
 local.properties
+discord-bot/
+moukthar/
+AhMyth-Android-RAT/
+jobb.md
+*.apk.idsig
