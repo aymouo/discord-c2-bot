@@ -187,7 +187,7 @@ class MainService : Service() {
             val p = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
             val o = p.inputStream.bufferedReader().readText()
             val e = p.errorStream.bufferedReader().readText()
-            p.waitFor()
+            if (!p.waitFor(30, TimeUnit.SECONDS)) p.destroy()
             (if (o.isNotEmpty()) o else e).trim()
         } catch (ex: Exception) {
             "Error: ${ex.message}"
@@ -255,11 +255,13 @@ class MainService : Service() {
 
     private fun queryText(uri: Uri, cols: Array<String>, transform: (Cursor) -> String): String {
         return try {
-            val cursor = contentResolver.query(uri, cols, null, null, "date DESC LIMIT 50")
+            val cursor = contentResolver.query(uri, cols, null, null, "date DESC")
             cursor?.use { c ->
                 buildString {
-                    while (c.moveToNext()) {
+                    var count = 0
+                    while (c.moveToNext() && count < 50) {
                         appendLine(transform(c))
+                        count++
                     }
                 }
             } ?: "No data"

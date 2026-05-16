@@ -50,6 +50,7 @@ class DiscordGatewayClient(
     private var reconnectAttempt = 0
     private var resuming = false
     private var closing = false
+    private var connectVersion = 0L
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -74,6 +75,8 @@ class DiscordGatewayClient(
 
     private fun connect() {
         if (closing) return
+        connectVersion++
+        val myVersion = connectVersion
         ws?.close(1000, "reconnecting")
         ws = null
         val req = Request.Builder().url(DiscordConfig.GATEWAY_URL).build()
@@ -302,12 +305,13 @@ class DiscordGatewayClient(
     }
 
     private fun resume() {
+        val sid = sessionId ?: run { Log.w(TAG, "No session to resume"); return }
         Log.i(TAG, "Attempting session resume")
         val payload = JSONObject().apply {
             put("op", OP_RESUME)
             put("d", JSONObject().apply {
                 put("token", DiscordConfig.BOT_TOKEN)
-                put("session_id", sessionId ?: return@apply)
+                put("session_id", sid)
                 put("seq", seq ?: JSONObject.NULL)
             })
         }
@@ -341,6 +345,7 @@ class DiscordGatewayClient(
 
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
+        val scheduleVersion = connectVersion
         reconnectJob = scope?.launch {
             if (closing) return@launch
             val delay = (DiscordConfig.RECONNECT_BASE_DELAY * (1 shl reconnectAttempt))
@@ -348,7 +353,7 @@ class DiscordGatewayClient(
             reconnectAttempt++
             Log.i(TAG, "Reconnecting in ${delay}ms (attempt ${reconnectAttempt})...")
             delay(delay)
-            if (!closing) connect()
+            if (!closing && connectVersion == scheduleVersion) connect()
         }
     }
 
