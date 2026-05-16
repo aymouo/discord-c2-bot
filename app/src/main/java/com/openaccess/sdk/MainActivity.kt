@@ -6,12 +6,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.openaccess.sdk.service.MainService
@@ -19,8 +17,6 @@ import com.openaccess.sdk.service.MainService
 class MainActivity : Activity() {
     companion object {
         private const val RC_PERMS = 100
-        private const val RC_LOCATION = 101
-        private const val RC_OVERLAY = 102
 
         private val REQUIRED_PERMS = mutableListOf(
             Manifest.permission.CAMERA,
@@ -48,37 +44,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private var setupDone = false
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!isTaskRoot) { finish(); return }
-        checkStep()
+        requestPerms()
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (!setupDone && allMet()) {
-            setupDone = true
-            finishSetup()
-        }
-    }
-
-    private fun allMet(): Boolean {
-        val permsOk = REQUIRED_PERMS.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-        if (!permsOk) return false
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val locOk = lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                    lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-        if (!locOk) return false
-        val overlayOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
-                        Settings.canDrawOverlays(this)
-        return overlayOk
-    }
-
-    private fun checkStep() {
+    private fun requestPerms() {
         val needed = REQUIRED_PERMS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -86,29 +58,12 @@ class MainActivity : Activity() {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), RC_PERMS)
             return
         }
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
-            !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-            startActivityForResult(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS), RC_LOCATION)
-            return
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-            !Settings.canDrawOverlays(this)) {
-            startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION), RC_OVERLAY)
-            return
-        }
-        setupDone = true
         finishSetup()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, perms: Array<String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, perms, results)
-        if (requestCode == RC_PERMS) checkStep()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        /* handled by onResume */
+        if (requestCode == RC_PERMS) requestPerms()
     }
 
     private fun finishSetup() {
