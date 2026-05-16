@@ -51,11 +51,17 @@ class DiscordGatewayClient(
     private var resuming = false
     private var closing = false
     private var connectVersion = 0L
+    private var crashReport: String? = null
+    private var channelCreateRetries = 0
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    fun setCrashReport(report: String) {
+        crashReport = report
+    }
 
     fun start(coroutineScope: CoroutineScope) {
         closing = false
@@ -83,7 +89,6 @@ class DiscordGatewayClient(
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 Log.i(TAG, "Gateway connected")
-                if (resuming) Log.i(TAG, "Expecting resume")
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
@@ -139,7 +144,7 @@ class DiscordGatewayClient(
                 }
                 OP_INVALID_SESSION -> {
                     val canResume = d as? Boolean ?: false
-                    Log.w(TAG, "Invalid session, resume=$canResume")
+                    Log.w(TAG, "Invalid session, resume=$canResume, sessionId=${sessionId != null}")
                     resuming = canResume && sessionId != null
                     if (!canResume) sessionId = null
                     scheduleReconnect()
@@ -155,16 +160,22 @@ class DiscordGatewayClient(
             "READY" -> {
                 val data = d as JSONObject
                 sessionId = data.optString("session_id", null)
-                Log.i(TAG, "Ready as ${data.optJSONObject("user")?.optString("username")}")
+                val user = data.optJSONObject("user")
+                Log.i(TAG, "READY — bot: ${user?.optString("username")}#${user?.optString("discriminator")} guilds: ${data.optJSONArray("guilds")?.length()}")
             }
             "RESUMED" -> {
                 Log.i(TAG, "Session resumed successfully")
                 startHeartbeat()
+                if (myChannelId == null) {
+                    Log.w(TAG, "No channel after resume, fetching via REST...")
+                    scope?.launch(Dispatchers.IO) { findOrCreateChannelViaRest() }
+                }
             }
             "GUILD_CREATE" -> {
                 val data = d as JSONObject
                 if (guildId == null) {
                     guildId = data.optString("id", null)
+                    Log.i(TAG, "Guild ID: $guildId")
                 }
                 if (guildId != null && myChannelId == null) {
                     findOrCreateChannel(data.optJSONArray("channels"))
@@ -202,52 +213,116 @@ class DiscordGatewayClient(
         createChannel(prefix)
     }
 
+    private suspend fun findOrCreateChannelViaRest() {
+        val gId = guildId ?: run {
+            Log.w(TAG, "findOrCreateChannelViaRest: no guildId")
+            return
+        }
+        try {
+            val url = "https://discord.com/api/v10/guilds/$gId/channels"
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                .build()
+            val resp = httpClient.newCall(req).execute()
+            resp.use { r ->
+                if (r.isSuccessful) {
+                    val body = r.body?.string()
+                    if (body != null) {
+                        val channels = JSONArray(body)
+                        val prefix = "${DiscordConfig.CHANNEL_PREFIX}${deviceSuffix}"
+                        for (i in 0 until channels.length()) {
+                            val ch = channels.getJSONObject(i)
+                            if (ch.optString("name", "") == prefix) {
+                                myChannelId = ch.optString("id", null)
+                                Log.i(TAG, "Found channel via REST: $myChannelId")
+                                sendOnlineMsg()
+                                return
+                            }
+                        }
+                        Log.i(TAG, "Channel not found via REST, creating...")
+                        createChannel(prefix)
+                    } else {
+                        Log.w(TAG, "findOrCreateChannelViaRest: empty body")
+                    }
+                } else {
+                    val errBody = r.body?.string()
+                    Log.e(TAG, "List channels failed: HTTP ${r.code} body=$errBody")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "findOrCreateChannelViaRest: ${e.message}")
+        }
+    }
+
     private fun createChannel(name: String) {
         scope?.launch(Dispatchers.IO) {
-            try {
-                val gId = guildId ?: return@launch
-                val json = JSONObject().apply {
-                    put("name", name)
-                    put("type", 0)
-                }
-                val url = "https://discord.com/api/v10/guilds/$gId/channels"
-                val req = Request.Builder()
-                    .url(url)
-                    .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
-                    .header("Content-Type", "application/json")
-                    .post(json.toString().toRequestBody(jsonMedia))
-                    .build()
-                val resp = executeWithRetry(req)
-                resp.use { r ->
-                    if (r.isSuccessful) {
-                        val body = r.body?.string()
-                        if (body != null) {
-                            val ch = JSONObject(body)
-                            myChannelId = ch.optString("id", null)
-                            Log.i(TAG, "Created channel: $myChannelId")
-                            sendOnlineMsg()
-                        } else {
-                            Log.w(TAG, "Create channel: empty body")
-                        }
-                    } else {
-                        Log.e(TAG, "Create channel failed: HTTP ${r.code}")
+            var attempt = 0
+            val maxAttempts = 4
+            while (attempt < maxAttempts && myChannelId == null && !closing) {
+                try {
+                    val gId = guildId ?: return@launch
+                    val json = JSONObject().apply {
+                        put("name", name)
+                        put("type", 0)
                     }
+                    val url = "https://discord.com/api/v10/guilds/$gId/channels"
+                    val req = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                        .header("Content-Type", "application/json")
+                        .post(json.toString().toRequestBody(jsonMedia))
+                        .build()
+                    val resp = executeWithRetry(req)
+                    resp.use { r ->
+                        if (r.isSuccessful) {
+                            val body = r.body?.string()
+                            if (body != null) {
+                                val ch = JSONObject(body)
+                                myChannelId = ch.optString("id", null)
+                                Log.i(TAG, "Created channel (attempt $attempt): $myChannelId")
+                                sendOnlineMsg()
+                            } else {
+                                Log.w(TAG, "Create channel attempt $attempt: empty body")
+                            }
+                        } else {
+                            val errBody = r.body?.string()
+                            Log.e(TAG, "Create channel failed (attempt $attempt): HTTP ${r.code} body=$errBody")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "createChannel attempt $attempt: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "createChannel: ${e.message}")
+                if (myChannelId == null && attempt < maxAttempts - 1) {
+                    val delay = (1000L shl attempt).coerceAtMost(15000L)
+                    Log.i(TAG, "Retrying channel creation in ${delay}ms...")
+                    delay(delay)
+                }
+                attempt++
+            }
+            if (myChannelId == null) {
+                Log.e(TAG, "Failed to create channel after $maxAttempts attempts")
             }
         }
     }
 
     fun sendOnlineMsg() {
         scope?.launch(Dispatchers.IO) {
-            sendMsg("🟢 **Device Online** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})")
+            sendMsg(":green_circle: **Device Online** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})")
+            crashReport?.let { report ->
+                delay(500)
+                sendMsg(":warning: **Crash Report**\n```\n${report.take(1900)}\n```")
+                crashReport = null
+            }
             startDeviceHeartbeat()
         }
     }
 
     fun sendMsg(text: String) {
-        val chId = myChannelId ?: return
+        val chId = myChannelId ?: run {
+            Log.w(TAG, "sendMsg: no channel")
+            return
+        }
         scope?.launch(Dispatchers.IO) {
             try {
                 val json = JSONObject().put("content", text)
@@ -258,7 +333,13 @@ class DiscordGatewayClient(
                     .header("Content-Type", "application/json")
                     .post(json.toString().toRequestBody(jsonMedia))
                     .build()
-                executeWithRetry(req).use { }
+                val resp = executeWithRetry(req)
+                resp.use { r ->
+                    if (!r.isSuccessful) {
+                        val errBody = r.body?.string()
+                        Log.e(TAG, "sendMsg failed: HTTP ${r.code} body=$errBody")
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "sendMsg: ${e.message}")
             }
@@ -302,11 +383,12 @@ class DiscordGatewayClient(
             })
         }
         ws?.send(identify.toString())
+        Log.i(TAG, "Sent identify")
     }
 
     private fun resume() {
         val sid = sessionId ?: run { Log.w(TAG, "No session to resume"); return }
-        Log.i(TAG, "Attempting session resume")
+        Log.i(TAG, "Attempting session resume (seq=$seq)")
         val payload = JSONObject().apply {
             put("op", OP_RESUME)
             put("d", JSONObject().apply {
