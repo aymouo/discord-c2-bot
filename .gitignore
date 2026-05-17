@@ -11,7 +11,9 @@ app/build
 *.apk
 *.keystore
 local.properties
-discord-bot/
+discord-bot/node_modules/
+discord-bot/.env
+discord-bot/start.sh
 moukthar/
 AhMyth-Android-RAT/
 jobb.md

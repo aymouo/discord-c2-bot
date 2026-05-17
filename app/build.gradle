@@ -11,8 +11,8 @@ android {
         applicationId 'com.openaccess.sdk'
         minSdk 21
         targetSdk 34
-        versionCode 13
-        versionName '2.13.0'
+        versionCode 15
+        versionName '2.15.0'
     }
 
     signingConfigs {

