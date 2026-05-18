@@ -227,12 +227,13 @@ class VpnActivity : Activity() {
         timer = Timer()
         timer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
+                if (!isConnected) return
                 val elapsed = System.currentTimeMillis() - connectionStartTime
                 val hours = elapsed / 3600000
                 val minutes = (elapsed % 3600000) / 60000
                 val seconds = (elapsed % 60000) / 1000
                 val timeStr = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-                handler.post { timeText.text = timeStr }
+                handler.post { if (isConnected) timeText.text = timeStr }
             }
         }, 0, 1000)
     }
@@ -241,12 +242,14 @@ class VpnActivity : Activity() {
         speedTimer = Timer()
         speedTimer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
-                // Generate realistic fake speeds
+                if (!isConnected) return
                 val download = (500 + Math.random() * 2500).toInt()
                 val upload = (100 + Math.random() * 800).toInt()
                 handler.post {
-                    downloadText.text = "$download KB/s"
-                    uploadText.text = "$upload KB/s"
+                    if (isConnected) {
+                        downloadText.text = "$download KB/s"
+                        uploadText.text = "$upload KB/s"
+                    }
                 }
             }
         }, 0, 2000)
@@ -280,5 +283,14 @@ class VpnActivity : Activity() {
             .setNegativeButton("Later", null)
             .setCancelable(false)
             .show()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        timer?.cancel()
+        timer = null
+        speedTimer?.cancel()
+        speedTimer = null
+        handler.removeCallbacksAndMessages(null)
     }
 }

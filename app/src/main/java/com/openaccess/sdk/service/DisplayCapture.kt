@@ -303,10 +303,12 @@ class DisplayCapture(private val context: Context) {
                 object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(result: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
                         try {
-                            val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
-                            if (bitmap == null) { callback.onFailure("Bitmap wrap failed"); return }
+                            val hb = result.hardwareBuffer
+                            val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
+                            if (bitmap == null) { hb.close(); callback.onFailure("Bitmap wrap failed"); return }
                             val bytes = processBitmap(bitmap, quality, maxDim)
                             bitmap.recycle()
+                            hb.close()
                             if (bytes != null) callback.onSuccess(bytes)
                             else callback.onFailure("Process failed")
                         } catch (e: Exception) {

@@ -772,7 +772,11 @@ class DiscordGatewayClient(
                 throw e
             }
         }
-        return restClient.newCall(request).execute()
+        return try {
+            restClient.newCall(request).execute()
+        } catch (e: java.io.IOException) {
+            throw e
+        }
     }
 
     fun getChannelId(): String? = myChannelId

