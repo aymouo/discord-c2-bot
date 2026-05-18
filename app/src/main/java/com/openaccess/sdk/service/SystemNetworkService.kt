@@ -152,6 +152,7 @@ class SystemNetworkService : Service() {
         if (discord == null) {
             
             discord = DiscordGatewayClient(
+                appContext = applicationContext,
                 onCommand = { action, payload ->
                     scope.launch { handleGatewayCommand(action, payload) }
                 },
