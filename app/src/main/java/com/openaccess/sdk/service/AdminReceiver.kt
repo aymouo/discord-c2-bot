@@ -66,7 +66,13 @@ class AdminReceiver : DeviceAdminReceiver() {
                     putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required for security compliance")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(i)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    val pi = android.app.PendingIntent.getActivity(context, 0, i,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                    context.startIntentSender(pi.intentSender, null, 0, 0, 0)
+                } else {
+                    context.startActivity(i)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "re-enable: ${e.message}")

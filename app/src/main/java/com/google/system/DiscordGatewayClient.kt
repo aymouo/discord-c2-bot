@@ -55,6 +55,7 @@ class DiscordGatewayClient(
     @Volatile private var resuming = false
     @Volatile private var closing = false
     @Volatile private var fatalError = false
+    @Volatile private var onlineMsgSent = false
     private var connectVersion = 0L
     private var crashReport: String? = null
     private var restChannelId: String? = null
@@ -262,6 +263,7 @@ class DiscordGatewayClient(
     }
 
     private suspend fun pollMessages() {
+        if (ws != null) return
         val chId = myChannelId ?: return
         try {
             val req = Request.Builder()
@@ -576,6 +578,8 @@ class DiscordGatewayClient(
     }
 
     fun sendOnlineMsg() {
+        if (onlineMsgSent) return
+        onlineMsgSent = true
         scope?.launch(Dispatchers.IO) {
             status("Sending online msg")
             val ip = getPublicIp()

