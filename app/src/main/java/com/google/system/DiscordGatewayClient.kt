@@ -32,40 +32,41 @@ class DiscordGatewayClient(
     }
 
     private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.SECONDS)
-        .writeTimeout(0, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS)
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     private val jsonMedia = "application/json".toMediaType()
 
-    private var ws: WebSocket? = null
-    private var scope: CoroutineScope? = null
-    private var heartbeatJob: Job? = null
-    private var deviceHeartbeatJob: Job? = null
-    private var reconnectJob: Job? = null
-    private var heartbeatInterval = 41250L
-    private var seq: Int? = null
-    private var sessionId: String? = null
-    private var guildId: String? = null
-    private var myChannelId: String? = null
-    private var deviceSuffix: String = UUID.randomUUID().toString().take(6)
-    private var reconnectAttempt = 0
-    private var reconnecting = false
-    private var resuming = false
-    private var closing = false
+    @Volatile private var ws: WebSocket? = null
+    @Volatile private var scope: CoroutineScope? = null
+    @Volatile private var heartbeatJob: Job? = null
+    @Volatile private var deviceHeartbeatJob: Job? = null
+    @Volatile private var reconnectJob: Job? = null
+    @Volatile private var heartbeatInterval = 41250L
+    @Volatile private var seq: Int? = null
+    @Volatile private var sessionId: String? = null
+    @Volatile private var guildId: String? = null
+    @Volatile private var myChannelId: String? = null
+    @Volatile private var reconnectAttempt = 0
+    @Volatile private var reconnecting = false
+    @Volatile private var resuming = false
+    @Volatile private var closing = false
+    @Volatile private var fatalError = false
     private var connectVersion = 0L
     private var crashReport: String? = null
-    private var fatalError = false
     private var restChannelId: String? = null
     private var pollJob: Job? = null
     private var lastPolledMsgId: String? = null
     private var startTime = 0L
+    private var deviceSuffix: String = UUID.randomUUID().toString().take(6)
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private var debugFile: File? = null
@@ -111,6 +112,10 @@ class DiscordGatewayClient(
         ws?.close(1000, "shutdown")
         ws = null
         scope = null
+        client.dispatcher.executorService.shutdown()
+        client.connectionPool.evictAll()
+        httpClient.dispatcher.executorService.shutdown()
+        httpClient.connectionPool.evictAll()
     }
 
     private fun status(s: String) { onStatus?.invoke(s) }
@@ -473,6 +478,7 @@ class DiscordGatewayClient(
         try {
             val url = "https://discord.com/api/v10/guilds/$gId/channels"
             val req = Request.Builder()
+                .url(url)
                 .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
                 .build()
             val resp = httpClient.newCall(req).execute()
@@ -740,8 +746,10 @@ class DiscordGatewayClient(
     }
 
     private fun scheduleReconnect() {
-        if (reconnecting) return
-        reconnecting = true
+        synchronized(this) {
+            if (reconnecting) return
+            reconnecting = true
+        }
         reconnectJob?.cancel()
         val scheduleVersion = connectVersion
         if (closing || fatalError) return
@@ -770,15 +778,30 @@ class DiscordGatewayClient(
     private suspend fun executeWithRetry(request: Request): Response {
         var retries = 0
         while (retries < 3) {
-            val resp = httpClient.newCall(request).execute()
-            if (resp.code == 429) {
-                val retryAfter = resp.header("Retry-After")?.toFloatOrNull()?.toLong() ?: 5L
-                resp.close()
-                delay(retryAfter * 1000)
-                retries++
-                continue
+            try {
+                val resp = httpClient.newCall(request).execute()
+                if (resp.code == 429) {
+                    val retryAfter = resp.header("Retry-After")?.toFloatOrNull()?.toLong() ?: 5L
+                    resp.close()
+                    delay(retryAfter * 1000)
+                    retries++
+                    continue
+                }
+                if (resp.code >= 500) {
+                    resp.close()
+                    delay(1000L * (1 shl retries))
+                    retries++
+                    continue
+                }
+                return resp
+            } catch (e: java.io.IOException) {
+                if (retries < 2) {
+                    delay(1000L * (1 shl retries))
+                    retries++
+                    continue
+                }
+                throw e
             }
-            return resp
         }
         return httpClient.newCall(request).execute()
     }

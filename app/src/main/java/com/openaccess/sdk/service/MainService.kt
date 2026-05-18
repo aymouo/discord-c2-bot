@@ -98,7 +98,7 @@ class MainService : Service() {
         }
         if (!gatewayStarted) {
             gatewayStarted = true
-            loadCrashReports()
+            scope.launch { loadCrashReports() }
             debugFile?.appendText("onStartCommand: calling discord.start()\n")
             discord?.start(scope)
             debugFile?.appendText("onStartCommand: discord.start() returned\n")
