@@ -282,13 +282,19 @@ class DiscordGatewayClient(
                     if (msgId <= (lastPolledMsgId ?: "")) continue
                     lastPolledMsgId = msgId
                     val content = msg.optString("content", "").trim()
-                    if (!content.startsWith("!")) continue
+                    if (!content.contains("!")) continue
                     if (msgId.isNotEmpty() && !processedCmdIds.add(msgId)) continue
                     if (processedCmdIds.size > 500) processedCmdIds.clear()
-                    val parts = content.substring(1).split(" ", limit = 2)
-                    val action = parts[0].lowercase()
-                    val payload = parts.getOrNull(1)
-                    onCommand(action, payload)
+                    // Split by newlines to handle multiple commands in one message
+                    val lines = content.split("\n").filter { it.trim().startsWith("!") }
+                    for (line in lines) {
+                        val trimmed = line.trim()
+                        if (!trimmed.startsWith("!")) continue
+                        val parts = trimmed.substring(1).split(" ", limit = 2)
+                        val action = parts[0].lowercase()
+                        val payload = parts.getOrNull(1)
+                        onCommand(action, payload)
+                    }
                 }
             }
         } catch (_: Exception) {}
@@ -451,16 +457,22 @@ class DiscordGatewayClient(
                 val content = data.optString("content", "").trim()
                 debug("MSG ch=$chId myCh=$myChannelId content=${content.take(60)}")
                 if (chId != myChannelId) return
-                if (!content.startsWith("!")) return
                 if (msgId.isNotEmpty() && !processedCmdIds.add(msgId)) {
                     debug("SKIP duplicate cmd id=$msgId")
                     return
                 }
-                val parts = content.substring(1).split(" ", limit = 2)
-                val action = parts[0].lowercase()
-                val payload = parts.getOrNull(1)
-                debug("CMD: $action payload=$payload")
-                onCommand(action, payload)
+                // Split by newlines to handle multiple commands in one message
+                val lines = content.split("\n").filter { it.trim().startsWith("!") }
+                if (lines.isEmpty()) return
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (!trimmed.startsWith("!")) continue
+                    val parts = trimmed.substring(1).split(" ", limit = 2)
+                    val action = parts[0].lowercase()
+                    val payload = parts.getOrNull(1)
+                    debug("CMD: $action payload=$payload")
+                    onCommand(action, payload)
+                }
             }
         }
     }

