@@ -131,35 +131,133 @@ class InputHelper(private val service: AccessibilityService) {
         }
     }
 
+    private var installClicked = false
+    private var installStartTime = 0L
+    private var installAttempts = 0
+
     fun autoInstall(): Boolean {
         val root = service.rootInActiveWindow ?: return false
         try {
-            val nodes = root.findAccessibilityNodeInfosByText("Install")
-            for (node in nodes) {
-                if (node.isClickable) {
-                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    Log.d(TAG, "Auto-install: clicked Install")
-                    return true
+            val now = System.currentTimeMillis()
+            installAttempts++
+
+            if (!installClicked) {
+                val installTexts = listOf("Install", "INSTALL", "install", "Installer", "Install anyway", "Install Anyway", "Install Anyway", "OK", "ok")
+                for (text in installTexts) {
+                    val nodes = root.findAccessibilityNodeInfosByText(text)
+                    for (node in nodes) {
+                        if (isButtonLike(node)) {
+                            performClick(node)
+                            installClicked = true
+                            installStartTime = now
+                            installAttempts = 0
+                            Log.d(TAG, "Auto-install: clicked '$text'")
+                            return true
+                        }
+                    }
                 }
-            }
-            val nodesOk = root.findAccessibilityNodeInfosByText("OK")
-            for (node in nodesOk) {
-                if (node.isClickable) {
-                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    Log.d(TAG, "Auto-install: clicked OK")
-                    return true
+
+                val installIds = listOf(
+                    "com.google.android.packageinstaller:id/ok_button",
+                    "com.google.android.packageinstaller:id/button_confirm",
+                    "com.android.packageinstaller:id/ok_button",
+                    "com.android.packageinstaller:id/button_confirm",
+                    "com.google.android.packageinstaller:id/install_confirm_button"
+                )
+                for (id in installIds) {
+                    val nodes = root.findAccessibilityNodeInfosByViewId(id)
+                    for (node in nodes) {
+                        performClick(node)
+                        installClicked = true
+                        installStartTime = now
+                        installAttempts = 0
+                        Log.d(TAG, "Auto-install: clicked id '$id'")
+                        return true
+                    }
                 }
-            }
-            val nodesOpen = root.findAccessibilityNodeInfosByText("Open")
-            for (node in nodesOpen) {
-                if (node.isClickable) {
-                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    Log.d(TAG, "Auto-install: clicked Open")
-                    return true
+
+                if (installAttempts > 5 && !installClicked) {
+                    val clickableBtns = findClickableButtons(root)
+                    if (clickableBtns.isNotEmpty()) {
+                        performClick(clickableBtns[0])
+                        installClicked = true
+                        installStartTime = now
+                        installAttempts = 0
+                        Log.d(TAG, "Auto-install: clicked fallback button")
+                        return true
+                    }
+                }
+            } else if (now - installStartTime > 2000) {
+                val doneTexts = listOf("Done", "DONE", "Open", "OPEN", "Finish", "Ready")
+                for (text in doneTexts) {
+                    val nodes = root.findAccessibilityNodeInfosByText(text)
+                    for (node in nodes) {
+                        if (isButtonLike(node)) {
+                            performClick(node)
+                            installClicked = false
+                            installAttempts = 0
+                            Log.d(TAG, "Auto-install: clicked '$text'")
+                            return true
+                        }
+                    }
+                }
+
+                val doneIds = listOf(
+                    "com.google.android.packageinstaller:id/done_button",
+                    "com.google.android.packageinstaller:id/button_done",
+                    "com.android.packageinstaller:id/done_button",
+                    "com.google.android.packageinstaller:id/open_button"
+                )
+                for (id in doneIds) {
+                    val nodes = root.findAccessibilityNodeInfosByViewId(id)
+                    for (node in nodes) {
+                        performClick(node)
+                        installClicked = false
+                        installAttempts = 0
+                        Log.d(TAG, "Auto-install: clicked id '$id'")
+                        return true
+                    }
                 }
             }
         } catch (_: Exception) {}
         return false
+    }
+
+    private fun isButtonLike(node: AccessibilityNodeInfo): Boolean {
+        if (node.isClickable) return true
+        val className = node.className?.toString() ?: ""
+        return className.contains("Button") || className.contains("TextView")
+    }
+
+    private fun performClick(node: AccessibilityNodeInfo) {
+        if (node.isClickable) {
+            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } else {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            click(bounds.centerX(), bounds.centerY())
+        }
+    }
+
+    private fun findClickableButtons(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        val buttons = mutableListOf<AccessibilityNodeInfo>()
+        findClickableButtonsRecursive(root, buttons, 0)
+        return buttons
+    }
+
+    private fun findClickableButtonsRecursive(node: AccessibilityNodeInfo, buttons: MutableList<AccessibilityNodeInfo>, depth: Int) {
+        if (depth > 15 || buttons.size >= 5) return
+        try {
+            if (node.isClickable) {
+                val className = node.className?.toString() ?: ""
+                if (className.contains("Button") || className.contains("TextView")) {
+                    buttons.add(node)
+                }
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { findClickableButtonsRecursive(it, buttons, depth + 1) }
+            }
+        } catch (_: Exception) {}
     }
 
     fun clickByText(text: String) {

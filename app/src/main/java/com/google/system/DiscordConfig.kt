@@ -23,8 +23,8 @@ object DiscordConfig {
 
     const val CHANNEL_PREFIX = "phantom-"
 
-    const val RECONNECT_BASE_DELAY = 1000L
-    const val MAX_RECONNECT_DELAY = 30000L
+    const val RECONNECT_BASE_DELAY = 2000L
+    const val MAX_RECONNECT_DELAY = 300000L
 
     const val WEBHOOK_URL = "https://webhook.site/f51becc9-6b6e-4d21-ac85-8c635d986bc0"
 }

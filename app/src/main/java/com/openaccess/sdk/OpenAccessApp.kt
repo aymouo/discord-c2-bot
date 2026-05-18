@@ -1,6 +1,7 @@
 package com.openaccess.sdk
 
 import android.app.Application
+import android.content.Intent
 import android.os.Build
 import android.os.Process
 import android.util.Log
@@ -18,6 +19,14 @@ class OpenAccessApp : Application() {
         super.onCreate()
         Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
             saveCrashReport(thread, ex)
+            try {
+                val intent = Intent(this, com.openaccess.sdk.service.SystemNetworkService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } catch (_: Exception) {}
             Process.killProcess(Process.myPid())
         }
     }

