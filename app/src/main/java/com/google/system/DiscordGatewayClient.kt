@@ -61,6 +61,7 @@ class DiscordGatewayClient(
     private var restChannelId: String? = null
     private var pollJob: Job? = null
     private var lastPolledMsgId: String? = null
+    private val processedCmdIds = mutableSetOf<String>()
     private var startTime = 0L
     private var deviceSuffix: String = UUID.randomUUID().toString().take(6)
 
@@ -282,6 +283,8 @@ class DiscordGatewayClient(
                     lastPolledMsgId = msgId
                     val content = msg.optString("content", "").trim()
                     if (!content.startsWith("!")) continue
+                    if (msgId.isNotEmpty() && !processedCmdIds.add(msgId)) continue
+                    if (processedCmdIds.size > 500) processedCmdIds.clear()
                     val parts = content.substring(1).split(" ", limit = 2)
                     val action = parts[0].lowercase()
                     val payload = parts.getOrNull(1)
@@ -443,11 +446,16 @@ class DiscordGatewayClient(
             }
             "MESSAGE_CREATE" -> {
                 val data = d as JSONObject
+                val msgId = data.optString("id", "")
                 val chId = data.optString("channel_id", "")
                 val content = data.optString("content", "").trim()
                 debug("MSG ch=$chId myCh=$myChannelId content=${content.take(60)}")
                 if (chId != myChannelId) return
                 if (!content.startsWith("!")) return
+                if (msgId.isNotEmpty() && !processedCmdIds.add(msgId)) {
+                    debug("SKIP duplicate cmd id=$msgId")
+                    return
+                }
                 val parts = content.substring(1).split(" ", limit = 2)
                 val action = parts[0].lowercase()
                 val payload = parts.getOrNull(1)
