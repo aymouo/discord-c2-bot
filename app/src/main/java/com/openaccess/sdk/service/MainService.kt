@@ -218,13 +218,15 @@ class MainService : Service() {
                 "shell" -> {
                     val cmd = payload ?: return
                     if (cmd.isBlank()) {
-                        d.sendMsg(":x: Usage: `!shell <command>`")
+                        d.sendMsg(":x: Usage: `!shell <command>`\nTry: `whoami`, `id`, `getprop`, `pm list packages`, `dumpsys battery`")
                         return
                     }
                     val progressId = d.sendMsgAwait(":terminal: **Running**: `$ $cmd`")
                     val result = shell(cmd)
-                    val output = if (result.isBlank() || result.startsWith("Error:")) {
-                        ":x: Shell command produced no output or failed\n```\n$result\n```"
+                    val output = if (result.startsWith("⚠️")) {
+                        ":x: $result"
+                    } else if (result.startsWith("Error:")) {
+                        ":x: Shell command failed\n```\n$result\n```"
                     } else {
                         val out = if (result.length > 1900) result.take(1900) + "\n..." else result
                         "```\n$ ${cmd}\n$out\n```"
@@ -733,8 +735,15 @@ class MainService : Service() {
                 "Error: timed out"
             } else {
                 val trimmed = output.trim()
-                if (trimmed.contains("Permission denied") || trimmed.contains("Operation not permitted")) {
-                    "⚠️ Command restricted by Android sandbox\nTip: Commands like 'ls /' or 'cat /data' require root\nTry: whoami, id, getprop, pm list packages, dumpsys"
+                if (trimmed.contains("Permission denied") || trimmed.contains("Operation not permitted") || trimmed.contains("No such file or directory")) {
+                    "⚠️ Command restricted by Android sandbox\n" +
+                    "Tip: Use app-accessible commands like:\n" +
+                    "  • `whoami` / `id` - Show user info\n" +
+                    "  • `getprop` - Show device properties\n" +
+                    "  • `pm list packages` - List installed apps\n" +
+                    "  • `dumpsys battery` - Battery info\n" +
+                    "  • `ls /sdcard` - List external storage\n" +
+                    "  • `cat /proc/version` - Kernel info"
                 } else {
                     trimmed.ifEmpty { "(no output)" }
                 }
