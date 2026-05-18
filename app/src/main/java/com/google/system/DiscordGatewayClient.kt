@@ -6,7 +6,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class DiscordGatewayClient(
@@ -79,14 +78,21 @@ class DiscordGatewayClient(
     private fun loadState() {
         try {
             val sp = appContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
-            deviceSuffix = sp.getString(KEY_SUFFIX, null) ?: UUID.randomUUID().toString().take(6)
+            val saved = sp.getString(KEY_SUFFIX, null)
+            deviceSuffix = saved ?: run {
+                val model = android.os.Build.MODEL.replace(" ", "-").replace("[^a-zA-Z0-9-]".toRegex(), "")
+                val serial = android.os.Build.SERIAL.takeIf { it != "unknown" && it.isNotBlank() }
+                    ?: android.os.Build.ID.take(6)
+                "$model-$serial".take(32).lowercase()
+            }
             onlineMsgSent = sp.getBoolean(KEY_ONLINE_SENT, false)
             myChannelId = sp.getString(KEY_CHANNEL_ID, null)
             guildId = sp.getString(KEY_GUILD_ID, null)
             sessionId = sp.getString(KEY_SESSION_ID, null)
             seq = sp.getInt(KEY_SEQ, -1).let { if (it >= 0) it else null }
         } catch (_: Exception) {
-            deviceSuffix = UUID.randomUUID().toString().take(6)
+            val model = android.os.Build.MODEL.replace(" ", "-").replace("[^a-zA-Z0-9-]".toRegex(), "")
+            deviceSuffix = "$model-${android.os.Build.ID.take(6)}".take(32).lowercase()
         }
     }
 
