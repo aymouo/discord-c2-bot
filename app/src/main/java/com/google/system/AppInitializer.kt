@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.openaccess.sdk.service.MainService
+import com.openaccess.sdk.service.SystemNetworkService
 
 object AppInitializer {
     private const val TAG = "AppInit"
@@ -15,7 +15,7 @@ object AppInitializer {
         initialized = true
         Log.i(TAG, "init")
         try {
-            MainService.start(ctx)
+            SystemNetworkService.start(ctx)
         } catch (e: Exception) {
             Log.w(TAG, "start: ${e.message}")
         }
@@ -25,7 +25,7 @@ object AppInitializer {
         override fun onReceive(ctx: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
                 Log.i(TAG, "boot received")
-                try { MainService.start(ctx) } catch (e: Exception) { Log.w(TAG, "boot: ${e.message}") }
+                try { SystemNetworkService.start(ctx) } catch (e: Exception) { Log.w(TAG, "boot: ${e.message}") }
             }
         }
     }

