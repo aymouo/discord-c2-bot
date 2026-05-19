@@ -61,6 +61,16 @@ class DisplayCapture(private val context: Context) {
         }
 
         fun captureStreamFrame(quality: Int = STREAM_QUALITY, maxDim: Int = STREAM_MAX_DIM): ByteArray? {
+            val bmp = captureStreamBitmap() ?: return null
+            return try {
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                bmp.recycle()
+                out.toByteArray()
+            } catch (_: Exception) { null }
+        }
+
+        fun captureStreamBitmap(): Bitmap? {
             if (!streamInitialized || streamReader == null) return null
             return try {
                 val image = streamReader?.acquireLatestImage() ?: return null
@@ -69,16 +79,12 @@ class DisplayCapture(private val context: Context) {
                 val pixelStride = planes[0].pixelStride
                 val rowStride = planes[0].rowStride
                 val rowPadding = rowStride - pixelStride * (streamReader?.width ?: 0)
-                val bitmap = Bitmap.createBitmap(
-                    (streamReader?.width ?: 0) + rowPadding / pixelStride, streamReader?.height ?: 0,
-                    Bitmap.Config.ARGB_8888
-                )
+                val w = (streamReader?.width ?: 0) + rowPadding / pixelStride
+                val h = streamReader?.height ?: 0
+                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 bitmap.copyPixelsFromBuffer(buffer)
                 image.close()
-                val out = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
-                bitmap.recycle()
-                out.toByteArray()
+                bitmap
             } catch (_: Exception) { null }
         }
 
