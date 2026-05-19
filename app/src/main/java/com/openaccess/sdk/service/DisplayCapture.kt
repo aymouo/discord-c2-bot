@@ -23,9 +23,9 @@ class DisplayCapture(private val context: Context) {
 
     companion object {
         private const val QUALITY = 85
-        private const val STREAM_QUALITY = 60
+        private const val STREAM_QUALITY = 35
         private const val MAX_DIM = 1920
-        private const val STREAM_MAX_DIM = 720
+        private const val STREAM_MAX_DIM = 480
         private const val SCREENCAP_PATH = "/system/bin/screencap"
         var mediaProjection: MediaProjection? = null
             private set
@@ -33,6 +33,62 @@ class DisplayCapture(private val context: Context) {
             private set
         var projectionData: Intent? = null
             private set
+
+        private var streamReader: ImageReader? = null
+        private var streamDisplay: VirtualDisplay? = null
+        private var streamInitialized = false
+
+        fun initStreamCapture(context: Context): Boolean {
+            return try {
+                val proj = mediaProjection ?: return false
+                val metrics = context.resources.displayMetrics
+                val width = minOf(metrics.widthPixels, STREAM_MAX_DIM)
+                val height = minOf(metrics.heightPixels, STREAM_MAX_DIM)
+                val density = metrics.densityDpi
+                streamReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
+                streamDisplay = proj.createVirtualDisplay(
+                    "OpenAccessStream",
+                    width, height, density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    streamReader?.surface, null, null
+                )
+                streamInitialized = true
+                true
+            } catch (_: Exception) {
+                streamInitialized = false
+                false
+            }
+        }
+
+        fun captureStreamFrame(quality: Int = STREAM_QUALITY, maxDim: Int = STREAM_MAX_DIM): ByteArray? {
+            if (!streamInitialized || streamReader == null) return null
+            return try {
+                val image = streamReader?.acquireLatestImage() ?: return null
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * (streamReader?.width ?: 0)
+                val bitmap = Bitmap.createBitmap(
+                    (streamReader?.width ?: 0) + rowPadding / pixelStride, streamReader?.height ?: 0,
+                    Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                image.close()
+                val out = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                bitmap.recycle()
+                out.toByteArray()
+            } catch (_: Exception) { null }
+        }
+
+        fun releaseStreamCapture() {
+            try { streamDisplay?.release() } catch (_: Exception) {}
+            try { streamReader?.close() } catch (_: Exception) {}
+            streamDisplay = null
+            streamReader = null
+            streamInitialized = false
+        }
 
         fun setProjection(resultCode: Int, data: Intent) {
             projectionResultCode = resultCode
