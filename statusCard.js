@@ -183,7 +183,7 @@ export async function statusCard(opts = {}) {
   ctx.fillStyle = t.accent + '15'
   ctx.font = 'bold 12px Arial'
   ctx.textAlign = 'right'
-  ctx.fillText('PHANTOM C2', w - 30, h - 15)
+  ctx.fillText('PHANTOM UCHIHA', w - 30, h - 15)
   ctx.restore()
 
   return canvas.toBuffer('image/png')
