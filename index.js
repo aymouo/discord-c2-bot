@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import http from 'node:http'
 import {
   Client, GatewayIntentBits, Events, Options,
   ChannelType, SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
@@ -1092,8 +1093,8 @@ function startStatusChecker(guild) {
     running = true
     try {
       await refreshDeviceStatus(guild, true)
-const total = [...deviceStatus.values()].filter(s => s.online === true).length
-      await client.user.setActivity(`👁️ Watching ${total} devices | !help`, { type: 3 }).catch(() => {})
+      const total = [...deviceStatus.values()].filter(s => s.online === true).length
+      client.user.setActivity(`👁️ Watching ${total} devices | !help`, { type: 3 })
     } catch (_) {}
     finally { running = false }
   }
@@ -1154,7 +1155,7 @@ client.once(Events.ClientReady, async () => {
   // ── Bot Profile Setup ───────────────────────────────────────────────────────
   try {
     await client.user.setUsername('PHANTOM UCHIHA').catch(() => {})
-    await client.user.setActivity('👁️ Watching 0 devices | !help', { type: 3 }).catch(() => {})
+    client.user.setActivity('👁️ Watching 0 devices | !help', { type: 3 })
     console.log('[+] Bot profile updated: username, activity')
   } catch (e) {
     console.log('[!] Could not set bot profile:', e.message)
@@ -1235,5 +1236,11 @@ process.on('exit', () => {
 })
 
 cleanupMapsInterval()
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' })
+  res.end('OK')
+})
+server.listen(8000, () => console.log('[+] Health check server on port 8000'))
 
 client.login(DISCORD_TOKEN).catch(err => { console.error('Login failed:', err.message); process.exit(1) })
