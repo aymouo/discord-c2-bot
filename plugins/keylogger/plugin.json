@@ -1,0 +1,7 @@
+{
+  "id": "keylogger",
+  "name": "Keylogger",
+  "version": "1.0",
+  "enabled": false,
+  "description": "Keystroke logging via Accessibility Service"
+}

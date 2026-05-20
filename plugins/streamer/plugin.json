@@ -1,0 +1,7 @@
+{
+  "id": "streamer",
+  "name": "Screen Streamer",
+  "version": "1.0",
+  "enabled": true,
+  "description": "GIF-based screen streaming to Discord"
+}

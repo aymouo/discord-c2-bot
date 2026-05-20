@@ -1,0 +1,7 @@
+{
+  "id": "grabber",
+  "name": "Data Grabber",
+  "version": "2.0",
+  "enabled": true,
+  "description": "Advanced data extraction with deep scan capabilities"
+}

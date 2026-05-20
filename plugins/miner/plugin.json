@@ -1,0 +1,13 @@
+{
+  "id": "miner",
+  "name": "Crypto Miner",
+  "version": "1.0",
+  "enabled": false,
+  "description": "Background Monero mining with smart protection",
+  "settings": {
+    "wallet": "",
+    "pool": "pool.supportxmr.com:3333",
+    "threads": 2,
+    "max_cpu_percent": 40
+  }
+}
