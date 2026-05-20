@@ -7,7 +7,7 @@ import {
 } from 'discord.js'
 import { statusCard } from './statusCard.js'
 import { ICONS } from './icons.js'
-import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize } from './utils/index.js'
+import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -33,11 +33,11 @@ const client = new Client({
   sweepers: {
     messages: {
       interval: 3600,
-      filter: () => (msg) => Date.now() - msg.createdTimestamp > 1800000,
+      filter: (msg) => Date.now() - msg.createdTimestamp > 1800000,
     },
     users: {
       interval: 3600,
-      filter: () => (user) => user.id !== client.user?.id,
+      filter: (user) => user.id !== client.user?.id,
     },
   },
 })
@@ -158,8 +158,9 @@ function isRateLimited(uid) {
   const data = rateLimits.get(uid)
   if (!data) { rateLimits.set(uid, { count: 1, ts: now }); return false }
   if (now - data.ts > RATE_LIMIT_WINDOW) { rateLimits.set(uid, { count: 1, ts: now }); return false }
+  if (data.count >= RATE_LIMIT_MAX) return true
   data.count++
-  return data.count > RATE_LIMIT_MAX
+  return false
 }
 
 function isOnCooldown(uid) {
@@ -1124,14 +1125,14 @@ function cleanupMaps() {
   for (const [uid, data] of rateLimits) {
     if (now - data.ts > RATE_LIMIT_WINDOW) rateLimits.delete(uid)
   }
-  for (const [uid, ts] of commandCooldowns) {
-    if (now - ts > COMMAND_COOLDOWN * 2) commandCooldowns.delete(uid)
+  for (const [uid, cd] of commandCooldowns) {
+    if (now - cd > COMMAND_COOLDOWN * 2) commandCooldowns.delete(uid)
   }
   for (const [uid, log] of commandLog) {
     if (log.length > COMMAND_LOG_MAX) commandLog.set(uid, log.slice(-COMMAND_LOG_MAX))
   }
-  for (const [key, ts] of alertCooldown) {
-    if (now - ts > 600000) alertCooldown.delete(key)
+  for (const [key, ac] of alertCooldown) {
+    if (now - ac > 600000) alertCooldown.delete(key)
   }
 }
 
@@ -1204,7 +1205,16 @@ client.on(Events.GuildDelete, (guild) => {
     clearInterval(statusCheckerId)
     statusCheckerId = null
   }
-  console.log(`[-] Left guild: ${guild.name}`)
+  for (const [, ch] of guild.channels.cache) {
+    if (ch.name.startsWith('phantom-')) {
+      deviceStatus.delete(ch.id)
+      targets.forEach((data, uid) => {
+        const chId = typeof data === 'object' ? data.chId : data
+        if (chId === ch.id) targets.delete(uid)
+      })
+    }
+  }
+  console.log(`[-] Left guild: ${guild.name} — cleaned up channels`)
 })
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
