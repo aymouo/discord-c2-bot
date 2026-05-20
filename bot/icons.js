@@ -4,8 +4,4 @@ export const ICONS = {
   correct: 'https://cdn.discordapp.com/emojis/1087275448951648387.gif',
 }
 
-export const EMBED_GIFS = [
-  'https://gifgifs.com/animations/anime/dragon-ball-z/Goku/goku_73.gif',
-  'https://gifgifs.com/animations/anime/rurouni-kenshin/rurouni_kenshin_6.gif',
-  'https://gifgifs.com/animations/anime/dragon-ball-z/Gogeta/gogeta_14.gif',
-]
+export const EMBED_GIFS = []
