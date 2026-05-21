@@ -668,20 +668,18 @@ client.on(Events.InteractionCreate, async (i) => {
           return i.editReply({ content: `${E.knife} Stream command sent: \`!stream ${streamPayload}\` ${E.skull}`, components: RESULT_BTNS })
         }
         case 'voicestream': {
-          console.log(`[VoiceStream] Command received from ${user.username}`)
+          console.log(`[VoiceStream] Command from ${user.username}`)
 
-          await guild.channels.fetch()
-
-          let voiceChannel = options.getChannel('channel')
-          if (!voiceChannel) {
-            const member = await guild.members.fetch(uid).catch(() => null)
-            if (member?.voice?.channelId) {
-              voiceChannel = guild.channels.cache.get(member.voice.channelId)
-            }
+          try {
+            await guild.channels.fetch()
+          } catch (e) {
+            console.error(`[VoiceStream] channels.fetch failed: ${e.message}`)
           }
 
+          let voiceChannel = options.getChannel('channel')
+
           if (!voiceChannel) {
-            return i.editReply(`${E.warning} **Usage:** \`/voicestream [channel]\`\n\n- Join a voice channel first, then run \`/voicestream\`\n- Or specify a channel: \`/voicestream channel:General\` ${E.skull}`)
+            return i.editReply(`${E.warning} **Pick a voice channel!**\n\nUsage: \`/voicestream channel: <select voice channel>\`\n\n1. Type \`/voicestream\`\n2. Click the \`channel\` field\n3. Select a voice channel\n4. Press Enter`)
           }
 
           if (!voiceChannel.isVoiceBased()) {
@@ -707,9 +705,9 @@ client.on(Events.InteractionCreate, async (i) => {
           console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
 
           const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
-          if (!r.ok) return i.editReply(`${E.coffin} Error sending command: ${r.err} ${E.skull}`)
+          if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
 
-          return i.editReply({ content: `${E.satellite} **Voice stream starting!**\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\n\nBot will join and stream at 30fps.`, components: RESULT_BTNS })
+          return i.editReply({ content: `${E.satellite} **Voice stream started!**\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\``, components: RESULT_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
