@@ -700,10 +700,21 @@ client.on(Events.InteractionCreate, async (i) => {
 
           console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
 
-          const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
-          if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
+          // Reply immediately to avoid "application did not respond"
+          await i.editReply({ content: `${E.satellite} **Starting voice stream**...\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\nConnecting...` })
 
-          return i.editReply({ content: `${E.satellite} **Voice stream started!**\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\``, components: RESULT_BTNS })
+          // Send command in background
+          sendCmdLogged(deviceCh, 'stream', payload, uid, user.username).then(r => {
+            if (r.ok) {
+              i.followUp({ content: `${E.check} **Voice stream active!**\n30fps H264 → VP8 pipeline`, ephemeral: true }).catch(() => {})
+            } else {
+              i.followUp({ content: `${E.coffin} Failed to start: ${r.err} ${E.skull}`, ephemeral: true }).catch(() => {})
+            }
+          }).catch(e => {
+            i.followUp({ content: `${E.coffin} Error: ${e.message} ${E.skull}`, ephemeral: true }).catch(() => {})
+          })
+
+          return
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
