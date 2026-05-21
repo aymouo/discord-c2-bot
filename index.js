@@ -508,9 +508,20 @@ client.on(Events.InteractionCreate, async (i) => {
           return
         }
         case 'untarget': {
-          const clearedCount = targets.size
+          await guild.channels.fetch()
+          const phantomChannels = getPhantomChannels(guild)
+          const channelCount = phantomChannels.size
+          const targetCount = targets.size
+
           targets.clear()
-          return i.editReply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} All ${clearedCount} target(s) cleared. Ready to select new victim. ${E.skull}`), components: MENU_BTNS })
+
+          if (channelCount > 0) {
+            for (const [, ch] of phantomChannels) {
+              try { await ch.delete() } catch (_) {}
+            }
+          }
+
+          return i.editReply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} Cleared ${targetCount} target(s) + deleted ${channelCount} victim channel(s). List is clean. ${E.skull}`), components: MENU_BTNS })
         }
         case 'broadcast': {
           const bc = options.getString('command').trim()
@@ -975,9 +986,20 @@ client.on(Events.MessageCreate, async (msg) => {
           return msg.reply({ ...bloodEmbed(bold('VICTIM ACQUIRED'), 'warning', `\`\`\`ansi\n${box}\n\`\`\``), components: RESULT_BTNS })
         }
         case '!untarget': {
-          const clearedCount = targets.size
+          await guild.channels.fetch()
+          const phantomChannels = getPhantomChannels(guild)
+          const channelCount = phantomChannels.size
+          const targetCount = targets.size
+
           targets.clear()
-          return msg.reply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} All ${clearedCount} target(s) cleared. Ready to select new victim. ${E.skull}`), components: MENU_BTNS })
+
+          if (channelCount > 0) {
+            for (const [, ch] of phantomChannels) {
+              try { await ch.delete() } catch (_) {}
+            }
+          }
+
+          return msg.reply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} Cleared ${targetCount} target(s) + deleted ${channelCount} victim channel(s). List is clean. ${E.skull}`), components: MENU_BTNS })
         }
         case '!history': {
           const log = formatCommandLog(uid)
