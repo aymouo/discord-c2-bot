@@ -113,19 +113,35 @@ class VideoStreamManager extends EventEmitter {
     this.stopStream(deviceId);
 
     try {
-      const guild = await this.client.guilds.fetch(guildId).catch(() => null);
+      console.log(`[Stream] Attempting to join: guild=${guildId}, channel=${voiceChannelId}`);
+
+      const guild = await this.client.guilds.fetch(guildId).catch(e => {
+        console.error(`[Stream] Guild fetch failed: ${e.message}`);
+        return null;
+      });
       if (!guild) {
         console.error(`[Stream] Guild not found: ${guildId}`);
         return false;
       }
 
-      const voiceChannel = await guild.channels.fetch(voiceChannelId).catch(() => null);
-      if (!voiceChannel || !voiceChannel.isVoiceBased()) {
-        console.error(`[Stream] Invalid voice channel: ${voiceChannelId}`);
+      console.log(`[Stream] Guild found: ${guild.name}`);
+
+      const voiceChannel = await guild.channels.fetch(voiceChannelId).catch(e => {
+        console.error(`[Stream] Channel fetch failed: ${e.message}`);
+        return null;
+      });
+      if (!voiceChannel) {
+        console.error(`[Stream] Voice channel not found: ${voiceChannelId}`);
+        return false;
+      }
+
+      if (!voiceChannel.isVoiceBased()) {
+        console.error(`[Stream] Channel is not voice-based: ${voiceChannel.type}`);
         return false;
       }
 
       console.log(`[Stream] Joining voice channel: ${voiceChannel.name} (${voiceChannelId})`);
+      console.log(`[Stream] Bot permissions: ${voiceChannel.permissionsFor(this.client.user).toArray().join(', ')}`);
 
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
@@ -134,6 +150,8 @@ class VideoStreamManager extends EventEmitter {
         selfDeaf: true,
         selfMute: false
       });
+
+      console.log(`[Stream] joinVoiceChannel called, waiting for ready state...`);
 
       const stream = {
         active: true,
@@ -156,15 +174,16 @@ class VideoStreamManager extends EventEmitter {
       this.streams.set(deviceId, stream);
 
       try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+        await entersState(connection, VoiceConnectionStatus.Ready, 30000);
         stream.connectionStatus = 'ready';
-        console.log(`[Stream] Voice connection ready for ${deviceId}`);
+        console.log(`[Stream] Voice connection READY for ${deviceId}`);
       } catch (e) {
-        console.error(`[Stream] Connection timeout for ${deviceId}:`, e.message);
-        stream.connectionStatus = 'timeout';
-        if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+        console.error(`[Stream] Connection timeout (30s) for ${deviceId}:`, e.message);
+        console.error(`[Stream] Current state: ${connection.state.status}`);
+        stream.connectionStatus = `timeout (${connection.state.status})`;
+        try {
           connection.destroy();
-        }
+        } catch (d) {}
         this.streams.delete(deviceId);
         return false;
       }
@@ -187,10 +206,15 @@ class VideoStreamManager extends EventEmitter {
         stream.connectionStatus = 'destroyed';
       });
 
+      connection.on('stateChange', (oldState, newState) => {
+        console.log(`[Stream] ${deviceId} state: ${oldState.status} -> ${newState.status}`);
+      });
+
       this.startFFmpegStream(stream, deviceId);
       return true;
     } catch (err) {
       console.error(`[Stream] Failed to start stream for ${deviceId}:`, err.message);
+      console.error(err.stack);
       return false;
     }
   }
