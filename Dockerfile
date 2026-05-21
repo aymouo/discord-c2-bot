@@ -3,15 +3,8 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
     ffmpeg \
     wget \
-    libcairo2 \
-    libpango-1.0-0 \
-    libjpeg62-turbo \
-    libgif7 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
