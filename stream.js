@@ -196,11 +196,10 @@ class VideoStreamManager {
       stream.sendInterval = setInterval(() => {
         if (!stream.active) return;
         const timeSinceLastFrame = Date.now() - stream.lastFrameAt;
-        if (timeSinceLastFrame > 15000) {
-          console.log(`[Stream] ${deviceId}: no frames for 15s, stopping`);
-          this.stopStream(deviceId);
+        if (timeSinceLastFrame > 60000 && stream.frameCount === 0) {
+          console.log(`[Stream] ${deviceId}: waiting for device to start sending frames...`);
         }
-      }, 10000);
+      }, 30000);
 
       this.streams.set(deviceId, stream);
       console.log(`[Stream] Stream ready for ${deviceId} at ${stream.config.fps}fps, voice=${!!voiceConnection}`);

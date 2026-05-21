@@ -436,6 +436,7 @@ const SLASH_CMDS = [
   new SlashCommandBuilder().setName('stream').setDescription('Control live screen stream').addStringOption(o => o.setName('action').setDescription('Action: start, stop, or fps number (1-30)').setRequired(false)),
   new SlashCommandBuilder().setName('voicestream').setDescription('Start voice channel video stream')
     .addChannelOption(o => o.setName('channel').setDescription('Voice channel (default: your current VC)').addChannelTypes(2).setRequired(false)),
+  new SlashCommandBuilder().setName('streamstop').setDescription('Stop voice stream and leave voice channel'),
   new SlashCommandBuilder().setName('streamstatus').setDescription('Check video stream status'),
 ].map(c => c.toJSON())
 
@@ -756,6 +757,16 @@ client.on(Events.InteractionCreate, async (i) => {
           }
 
           return
+        }
+        case 'streamstop': {
+          const status = videoStream.getStreamStatus()
+          if (!status || status.streams.length === 0) {
+            return i.editReply(`${E.warning} No active streams to stop ${E.skull}`)
+          }
+          for (const s of status.streams) {
+            videoStream.stopStream(s.deviceId)
+          }
+          return i.editReply({ content: `${E.check} **Stream stopped!**\nBot left voice channel.`, components: MENU_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
