@@ -1,5 +1,4 @@
 import 'dotenv/config'
-import http from 'node:http'
 import {
   Client, GatewayIntentBits, Events, Options,
   ChannelType, SlashCommandBuilder, AttachmentBuilder, EmbedBuilder,
@@ -1280,11 +1279,5 @@ process.on('exit', () => {
 })
 
 cleanupMapsInterval()
-
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' })
-  res.end('OK')
-})
-server.listen(8000, () => console.log('[+] Health check server on port 8000'))
 
 client.login(DISCORD_TOKEN).catch(err => { console.error('Login failed:', err.message); process.exit(1) })

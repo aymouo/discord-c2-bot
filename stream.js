@@ -69,6 +69,12 @@ class VideoStreamManager extends EventEmitter {
       });
     });
 
+    // Root health check for Koyeb
+    this.server.get('/', (req, res) => {
+      res.status(200).send('OK');
+    });
+
+    this.port = parseInt(process.env.PORT) || 8000;
     this.server.listen(this.port, () => {
       console.log(`[Stream] HTTP server listening on port ${this.port}`);
     });
