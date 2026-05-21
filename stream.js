@@ -1,5 +1,6 @@
 import express from 'express';
 import { AttachmentBuilder } from 'discord.js';
+import { joinVoiceChannel, entersState, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
 
 class VideoStreamManager {
   constructor() {
@@ -96,7 +97,7 @@ class VideoStreamManager {
     this.stopStream(deviceId);
 
     try {
-      console.log(`[Stream] Starting stream for ${deviceId}, textChannel=${config.textChannelId}`);
+      console.log(`[Stream] Starting stream for ${deviceId}, textChannel=${config.textChannelId}, voiceChannel=${config.voiceChannelId}`);
 
       const textChannel = await this.client.channels.fetch(config.textChannelId).catch(e => {
         console.error(`[Stream] Text channel fetch failed: ${e.message}`);
@@ -110,8 +111,75 @@ class VideoStreamManager {
 
       console.log(`[Stream] Text channel found: ${textChannel.name}`);
 
+      let voiceConnection = null;
+
+      if (config.voiceChannelId && config.guildId) {
+        try {
+          console.log(`[Stream] Fetching guild: ${config.guildId}`);
+          const guild = await this.client.guilds.fetch(config.guildId).catch(e => {
+            console.error(`[Stream] Guild fetch failed: ${e.message}`);
+            return null;
+          });
+
+          if (!guild) {
+            console.error(`[Stream] Guild not found: ${config.guildId}`);
+          } else {
+            console.log(`[Stream] Guild found: ${guild.name}`);
+
+            console.log(`[Stream] Fetching voice channel: ${config.voiceChannelId}`);
+            const voiceChannel = await guild.channels.fetch(config.voiceChannelId).catch(e => {
+              console.error(`[Stream] Voice channel fetch failed: ${e.message}`);
+              return null;
+            });
+
+            if (!voiceChannel) {
+              console.error(`[Stream] Voice channel not found: ${config.voiceChannelId}`);
+            } else if (!voiceChannel.isVoiceBased()) {
+              console.error(`[Stream] Channel is not voice-based: type=${voiceChannel.type}`);
+            } else {
+              console.log(`[Stream] Voice channel found: ${voiceChannel.name}`);
+
+              const existingConnection = getVoiceConnection(config.guildId);
+              if (existingConnection) {
+                console.log(`[Stream] Destroying existing connection`);
+                existingConnection.destroy();
+              }
+
+              console.log(`[Stream] Calling joinVoiceChannel...`);
+              voiceConnection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: guild.id,
+                adapterCreator: guild.voiceAdapterCreator,
+                selfDeaf: true,
+                selfMute: true,
+                debug: true
+              });
+
+              console.log(`[Stream] Waiting for Ready state (30s timeout)...`);
+              await entersState(voiceConnection, VoiceConnectionStatus.Ready, 30000);
+              console.log(`[Stream] Voice connection READY!`);
+
+              voiceConnection.on('stateChange', (oldState, newState) => {
+                console.log(`[Stream] Voice state: ${oldState.status} -> ${newState.status}`);
+              });
+
+              voiceConnection.on('debug', (msg) => {
+                console.log(`[Stream] Voice debug: ${msg}`);
+              });
+            }
+          }
+        } catch (e) {
+          console.error(`[Stream] Voice join failed: ${e.message}`);
+          if (voiceConnection) {
+            try { voiceConnection.destroy(); } catch (_) {}
+            voiceConnection = null;
+          }
+        }
+      }
+
       const stream = {
         active: true,
+        connection: voiceConnection,
         channel: textChannel,
         frameCount: 0,
         lastFrameAt: 0,
@@ -135,7 +203,7 @@ class VideoStreamManager {
       }, 10000);
 
       this.streams.set(deviceId, stream);
-      console.log(`[Stream] Stream ready for ${deviceId} at ${stream.config.fps}fps`);
+      console.log(`[Stream] Stream ready for ${deviceId} at ${stream.config.fps}fps, voice=${!!voiceConnection}`);
       return true;
     } catch (err) {
       console.error(`[Stream] Failed to start:`, err.message);
@@ -193,6 +261,11 @@ class VideoStreamManager {
       stream.sendInterval = null;
     }
 
+    if (stream.connection) {
+      try { stream.connection.destroy(); } catch (_) {}
+      stream.connection = null;
+    }
+
     this.streams.delete(deviceId);
   }
 
@@ -207,7 +280,7 @@ class VideoStreamManager {
         fps: s.config.fps,
         resolution: `${s.config.width}x${s.config.height}`,
         frames: s.frameCount,
-        connection: 'text-channel',
+        connection: s.connection ? 'voice+text' : 'text-only',
         uptime: Math.floor((Date.now() - s.startTime) / 1000)
       });
     }
