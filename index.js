@@ -5,7 +5,14 @@ import {
   ButtonBuilder, ButtonStyle, ActionRowBuilder,
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } from 'discord.js'
-import { statusCard } from './statusCard.js'
+let statusCard = null
+try {
+  const mod = await import('./statusCard.js')
+  statusCard = mod.statusCard
+  console.log('[+] statusCard (canvas) loaded')
+} catch (e) {
+  console.warn('[!] statusCard unavailable (canvas not installed):', e.message)
+}
 import { ICONS } from './icons.js'
 import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
 import { videoStream } from './stream.js'
