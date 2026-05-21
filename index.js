@@ -137,6 +137,7 @@ const deviceStatus = new Map()
 const devicePages = new Map()
 const rateLimits = new Map()
 const commandLog = new Map()
+const activeCommands = new Map()
 const commandCooldowns = new Map()
 const HEARTBEAT_TIMEOUT = 11 * 60 * 1000
 const STATUS_CHECK_INTERVAL = 5 * 60 * 1000
@@ -201,18 +202,49 @@ function findPhantomChannel(guild, name) {
   return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
 }
 
-async function sendCmd(channel, cmd, payload = '', retries = 2) {
-  try {
-    await channel.send(payload ? `!${cmd} ${payload}` : `!${cmd}`)
-    return { ok: true, name: channel.name }
-  } catch (e) {
-    if (e.code === 429 && retries > 0) {
-      const wait = (e.retryAfter || 1000) * 1.5
-      await new Promise(r => setTimeout(r, wait))
-      return sendCmd(channel, cmd, payload, retries - 1)
+async function sendCmd(channel, cmd, payload = '', retries = 3) {
+  const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const content = payload ? `!${cmd} ${payload}` : `!${cmd}`
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[Retry ${attempt}/${retries}] sendCmd: ${cmd} to ${channel.name}`)
+      }
+
+      const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('SEND_TIMEOUT')), 15000)
+      )
+
+      await Promise.race([channel.send(content), timeout])
+      return { ok: true, name: channel.name, cmdId }
+    } catch (e) {
+      const isRateLimit = e.code === 429 || e.status === 429
+      const isServerError = e.status >= 500
+      const isNetworkError = e.code === 'ECONNRESET' || e.code === 'ECONNREFUSED' || e.code === 'ETIMEDOUT'
+      const isTimeout = e.message === 'SEND_TIMEOUT'
+
+      if ((isRateLimit || isServerError || isNetworkError || isTimeout) && attempt < retries) {
+        let wait
+        if (isRateLimit) {
+          wait = (e.retryAfter || e.retryAfterMs || 1000) * 1.5
+        } else if (isTimeout) {
+          wait = 2000 * Math.pow(2, attempt)
+        } else {
+          wait = 1000 * Math.pow(2, attempt)
+        }
+
+        wait = Math.min(wait, 30000)
+        await new Promise(r => setTimeout(r, wait))
+        continue
+      }
+
+      console.error(`[sendCmd FAIL] ${cmd} -> ${channel.name}: ${e.message} (attempt ${attempt + 1})`)
+      return { ok: false, err: e.message, cmdId }
     }
-    return { ok: false, err: e.message }
   }
+
+  return { ok: false, err: 'max_retries_exceeded', cmdId }
 }
 
 async function sendCmdLogged(channel, cmd, payload, userId, userName) {
@@ -442,11 +474,29 @@ client.on(Events.InteractionCreate, async (i) => {
           await guild.channels.fetch()
           const channels = getPhantomChannels(guild)
           if (!channels.size) return i.editReply(`${E.coffin} No devices ${E.skull}`)
-          let sent = 0, failed = []
+
+          const cmdId = `bc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+          activeCommands.set(cmdId, { cmd: bcCmd, payload: bcPayload, total: channels.size, sent: 0, failed: 0, started: Date.now() })
+
+          let sent = 0, failed = [], retryQueue = []
+
           for (const [, ch] of channels) {
             const r = await sendCmdLogged(ch, bcCmd, bcPayload, uid, user.username)
-            if (r.ok) sent++; else failed.push(ch.name)
+            if (r.ok) {
+              sent++
+            } else {
+              retryQueue.push({ ch, name: ch.name })
+            }
+            if (channels.size > 3) await new Promise(r => setTimeout(r, 1200))
           }
+
+          for (const item of retryQueue) {
+            await new Promise(r => setTimeout(r, 2000))
+            const r = await sendCmdLogged(item.ch, bcCmd, bcPayload, uid, user.username)
+            if (r.ok) sent++; else failed.push(item.name)
+          }
+
+          activeCommands.delete(cmdId)
           const lines = [
             `${A.brightRed}${smallCaps('broadcast')}${A.reset}`,
             `${A.red}┃${A.reset} ${mono('!' + bcCmd + (bcPayload ? ' ' + bcPayload : ''))}${A.reset}`,
@@ -868,11 +918,23 @@ client.on(Events.MessageCreate, async (msg) => {
           await guild.channels.fetch()
           const channels = getPhantomChannels(guild)
           if (!channels.size) return msg.reply(`${E.coffin} No devices ${E.skull}`)
-          let sent = 0, failed = []
+
+          let sent = 0, failed = [], retryQueue = []
           for (const [, ch] of channels) {
             const r = await sendCmdLogged(ch, bcCmd, bcPayload, uid, msg.author.username)
-            if (r.ok) sent++; else failed.push(ch.name)
+            if (r.ok) {
+              sent++
+            } else {
+              retryQueue.push({ ch, name: ch.name })
+            }
+            if (channels.size > 3) await new Promise(r => setTimeout(r, 1200))
           }
+          for (const item of retryQueue) {
+            await new Promise(r => setTimeout(r, 2000))
+            const r = await sendCmdLogged(item.ch, bcCmd, bcPayload, uid, msg.author.username)
+            if (r.ok) sent++; else failed.push(item.name)
+          }
+
           const lines = [
             `${A.brightRed}${smallCaps('broadcast')}${A.reset}`,
             `${A.red}┃${A.reset} ${mono('!' + bcCmd + (bcPayload ? ' ' + bcPayload : ''))}${A.reset}`,
