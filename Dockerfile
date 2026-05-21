@@ -8,11 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     ffmpeg \
     wget \
+    libcairo2 \
+    libpango-1.0-0 \
+    libjpeg62-turbo \
+    libgif7 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 
-RUN npm install --omit=dev --no-optional 2>/dev/null || npm install --omit=dev
+RUN rm -f package-lock.json && npm install --omit=dev
 
 COPY . .
 
