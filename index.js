@@ -139,6 +139,8 @@ const rateLimits = new Map()
 const commandLog = new Map()
 const activeCommands = new Map()
 const commandCooldowns = new Map()
+const sentCommands = new Map()
+const COMMAND_DEDUP_WINDOW = 30000
 const HEARTBEAT_TIMEOUT = 11 * 60 * 1000
 const STATUS_CHECK_INTERVAL = 5 * 60 * 1000
 const PAGINATION_TIMEOUT = 120000
@@ -202,9 +204,23 @@ function findPhantomChannel(guild, name) {
   return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
 }
 
+const sentCommands = new Map()
+const COMMAND_DEDUP_WINDOW = 30000
+
 async function sendCmd(channel, cmd, payload = '', retries = 3) {
   const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const content = payload ? `!${cmd} ${payload}` : `!${cmd}`
+
+  const dedupKey = `${channel.id}:${content}`
+  const now = Date.now()
+  for (const [key, ts] of sentCommands) {
+    if (now - ts > COMMAND_DEDUP_WINDOW) sentCommands.delete(key)
+  }
+  if (sentCommands.has(dedupKey)) {
+    console.log(`[Dedup] Skipping duplicate command: ${cmd} to ${channel.name}`)
+    return { ok: true, name: channel.name, cmdId, dedup: true }
+  }
+  sentCommands.set(dedupKey, now)
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -217,12 +233,19 @@ async function sendCmd(channel, cmd, payload = '', retries = 3) {
       )
 
       await Promise.race([channel.send(content), timeout])
+      activeCommands.set(cmdId, { cmd, payload, channel: channel.name, sent: now, status: 'sent' })
       return { ok: true, name: channel.name, cmdId }
     } catch (e) {
       const isRateLimit = e.code === 429 || e.status === 429
       const isServerError = e.status >= 500
       const isNetworkError = e.code === 'ECONNRESET' || e.code === 'ECONNREFUSED' || e.code === 'ETIMEDOUT'
       const isTimeout = e.message === 'SEND_TIMEOUT'
+      const isUnknownMessage = e.message?.includes('Unknown Message')
+
+      if (isUnknownMessage) {
+        console.error(`[sendCmd FAIL] Channel gone: ${channel.name}`)
+        return { ok: false, err: 'channel_gone', cmdId }
+      }
 
       if ((isRateLimit || isServerError || isNetworkError || isTimeout) && attempt < retries) {
         let wait
@@ -240,10 +263,12 @@ async function sendCmd(channel, cmd, payload = '', retries = 3) {
       }
 
       console.error(`[sendCmd FAIL] ${cmd} -> ${channel.name}: ${e.message} (attempt ${attempt + 1})`)
+      activeCommands.set(cmdId, { cmd, payload, channel: channel.name, sent: now, status: 'failed', err: e.message })
       return { ok: false, err: e.message, cmdId }
     }
   }
 
+  activeCommands.set(cmdId, { cmd, payload, channel: channel.name, sent: now, status: 'max_retries' })
   return { ok: false, err: 'max_retries_exceeded', cmdId }
 }
 
@@ -1239,6 +1264,21 @@ function cleanupMaps() {
 
 function cleanupMapsInterval() {
   cleanupIntervalId = setInterval(cleanupMaps, MAP_CLEANUP_INTERVAL)
+  setInterval(cleanupCommandState, 300000)
+}
+
+function cleanupCommandState() {
+  const now = Date.now()
+  for (const [id, data] of activeCommands) {
+    if (now - data.sent > 600000) activeCommands.delete(id)
+  }
+  for (const [key, ts] of sentCommands) {
+    if (now - ts > COMMAND_DEDUP_WINDOW) sentCommands.delete(key)
+  }
+  for (const [uid, ts] of commandCooldowns) {
+    if (now - ts > 60000) commandCooldowns.delete(uid)
+  }
+  console.log(`[Cleanup] activeCommands=${activeCommands.size} sentCommands=${sentCommands.size} cooldowns=${commandCooldowns.size}`)
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
