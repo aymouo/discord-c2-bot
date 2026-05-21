@@ -150,8 +150,7 @@ const RATE_LIMIT_WINDOW = 5000
 const RATE_LIMIT_MAX = 10
 const COMMAND_LOG_MAX = 50
 
-// Video stream manager
-const videoStream = new VideoStreamManager(null) // Will set client after ready
+// Video stream manager (imported from stream.js)
 const COMMAND_COOLDOWN = 2000
 let statusCheckerId = null
 let cleanupIntervalId = null
@@ -203,9 +202,6 @@ function findPhantomChannel(guild, name) {
   const prefix = name.startsWith('phantom-') ? name : 'phantom-' + name
   return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
 }
-
-const sentCommands = new Map()
-const COMMAND_DEDUP_WINDOW = 30000
 
 async function sendCmd(channel, cmd, payload = '', retries = 3) {
   const cmdId = `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
