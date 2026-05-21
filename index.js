@@ -450,7 +450,10 @@ async function registerSlashCommands(guild) {
 
 client.on(Events.InteractionCreate, async (i) => {
   if (i.isChatInputCommand()) {
-    if (ALLOWED_CHANNEL_ID && i.channelId !== ALLOWED_CHANNEL_ID) return
+    if (ALLOWED_CHANNEL_ID && i.channelId !== ALLOWED_CHANNEL_ID) {
+      try { await i.reply({ content: `${E.warning} Commands only work in the control channel`, ephemeral: true }) } catch (_) {}
+      return
+    }
     try {
       await i.deferReply({ ephemeral: true })
     } catch (e) {
@@ -460,8 +463,14 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     const { commandName, options, user, guild } = i
     const uid = user.id
-    if (!guild) return
-    if (isOnCooldown(uid)) return
+    if (!guild) {
+      try { await i.editReply(`${E.coffin} This command only works in a server ${E.skull}`) } catch (_) {}
+      return
+    }
+    if (isOnCooldown(uid)) {
+      try { await i.editReply(`${E.skull} Cooldown. Wait a moment.`) } catch (_) {}
+      return
+    }
 
     try {
       switch (commandName) {
