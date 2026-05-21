@@ -1,11 +1,7 @@
 import express from 'express';
-import { joinVoiceChannel, createAudioPlayer, VoiceConnectionStatus, getVoiceConnection, entersState } from '@discordjs/voice';
-import { spawn } from 'child_process';
-import { EventEmitter } from 'events';
 
-class VideoStreamManager extends EventEmitter {
+class VideoStreamManager {
   constructor() {
-    super();
     this.client = null;
     this.streams = new Map();
     this.server = null;
@@ -19,12 +15,10 @@ class VideoStreamManager extends EventEmitter {
     this.server.use(express.raw({ type: 'application/octet-stream', limit: '10mb' }));
     this.server.use(express.urlencoded({ extended: true }));
 
-    // Root health check for Koyeb
     this.server.get('/', (req, res) => {
       res.status(200).send('OK');
     });
 
-    // Receive H264 frames from Android
     this.server.post('/api/stream/:deviceId/frame', (req, res) => {
       const deviceId = req.params.deviceId;
       const stream = this.streams.get(deviceId);
@@ -33,74 +27,59 @@ class VideoStreamManager extends EventEmitter {
         stream.frameCount++;
         stream.lastFrameAt = Date.now();
 
-        if (stream.ffmpeg && stream.ffmpeg.stdin && !stream.ffmpeg.stdin.destroyed) {
-          try {
-            stream.ffmpeg.stdin.write(req.body);
-          } catch (e) {
-            console.error(`[Stream] FFmpeg write error for ${deviceId}:`, e.message);
-          }
-        }
-
-        if (stream.frameCount % 30 === 0) {
-          console.log(`[Stream] ${deviceId}: ${stream.frameCount} frames, buffer: ${stream.frameBuffer.length}`);
+        if (stream.channel && req.body && req.body.length > 0) {
+          this.sendFrameToChannel(stream, req.body);
         }
 
         res.status(200).json({ status: 'ok', frames: stream.frameCount });
       } else {
-        res.status(404).json({ status: 'no_active_stream', hint: 'Send /api/stream/:deviceId/start first' });
+        res.status(404).json({ status: 'no_active_stream' });
       }
     });
 
-    // Start stream command
-    this.server.post('/api/stream/:deviceId/start', (req, res) => {
+    this.server.post('/api/stream/:deviceId/start', async (req, res) => {
       const deviceId = req.params.deviceId;
-      const { voiceChannelId, guildId, fps = 30, width = 480, height = 360 } = req.body;
+      const { voiceChannelId, guildId, textChannelId, fps = 5, width = 640, height = 480 } = req.body;
 
       if (!this.client || !this.ready) {
         return res.status(503).json({ status: 'bot_not_ready' });
       }
 
-      if (!voiceChannelId || !guildId) {
-        return res.status(400).json({ status: 'missing_params', required: ['voiceChannelId', 'guildId'] });
+      if (!textChannelId) {
+        return res.status(400).json({ status: 'missing_params', required: ['textChannelId'] });
       }
 
-      this.startStream(deviceId, voiceChannelId, guildId, { fps, width, height })
-        .then(ok => {
-          if (ok) {
-            res.json({ status: 'started', deviceId, voiceChannelId });
-          } else {
-            res.status(500).json({ status: 'failed', reason: 'could_not_join_channel' });
-          }
-        })
-        .catch(err => {
-          console.error(`[Stream] Start error for ${deviceId}:`, err.message);
-          res.status(500).json({ status: 'error', message: err.message });
+      try {
+        const started = await this.startStream(deviceId, {
+          voiceChannelId, guildId, textChannelId, fps, width, height
         });
+        if (started) {
+          res.json({ status: 'started', deviceId, textChannelId });
+        } else {
+          res.status(500).json({ status: 'failed' });
+        }
+      } catch (err) {
+        console.error(`[Stream] Start error:`, err.message);
+        res.status(500).json({ status: 'error', message: err.message });
+      }
     });
 
-    // Stop stream command
     this.server.post('/api/stream/:deviceId/stop', (req, res) => {
       const deviceId = req.params.deviceId;
       this.stopStream(deviceId);
       res.json({ status: 'stopped' });
     });
 
-    // Health check
     this.server.get('/api/stream/health', (req, res) => {
       const streams = Array.from(this.streams.entries()).map(([id, s]) => ({
         deviceId: id,
         active: s.active,
         fps: s.config.fps,
         frames: s.frameCount,
-        connected: s.connectionStatus,
         uptime: Date.now() - s.startTime
       }));
 
-      res.json({
-        ready: this.ready,
-        active: streams.length,
-        streams
-      });
+      res.json({ ready: this.ready, active: streams.length, streams });
     });
 
     this.server.listen(this.port, () => {
@@ -109,156 +88,119 @@ class VideoStreamManager extends EventEmitter {
     });
   }
 
-  async startStream(deviceId, voiceChannelId, guildId, config = {}) {
+  async startStream(deviceId, config) {
     this.stopStream(deviceId);
 
     try {
-      console.log(`[Stream] Attempting to join: guild=${guildId}, channel=${voiceChannelId}`);
+      console.log(`[Stream] Starting text stream for ${deviceId}`);
 
-      const guild = await this.client.guilds.fetch(guildId).catch(e => {
-        console.error(`[Stream] Guild fetch failed: ${e.message}`);
+      const textChannel = await this.client.channels.fetch(config.textChannelId).catch(e => {
+        console.error(`[Stream] Text channel fetch failed: ${e.message}`);
         return null;
       });
-      if (!guild) {
-        console.error(`[Stream] Guild not found: ${guildId}`);
+
+      if (!textChannel) {
+        console.error(`[Stream] Text channel not found: ${config.textChannelId}`);
         return false;
       }
 
-      console.log(`[Stream] Guild found: ${guild.name}`);
-
-      const voiceChannel = await guild.channels.fetch(voiceChannelId).catch(e => {
-        console.error(`[Stream] Channel fetch failed: ${e.message}`);
-        return null;
-      });
-      if (!voiceChannel) {
-        console.error(`[Stream] Voice channel not found: ${voiceChannelId}`);
-        return false;
+      let voiceConnection = null;
+      if (config.voiceChannelId && config.guildId) {
+        try {
+          const guild = await this.client.guilds.fetch(config.guildId).catch(() => null);
+          if (guild) {
+            const voiceChannel = await guild.channels.fetch(config.voiceChannelId).catch(() => null);
+            if (voiceChannel && voiceChannel.isVoiceBased()) {
+              const { joinVoiceChannel, entersState, VoiceConnectionStatus } = await import('@discordjs/voice');
+              voiceConnection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: guild.id,
+                adapterCreator: guild.voiceAdapterCreator,
+                selfDeaf: true,
+                selfMute: true
+              });
+              await entersState(voiceConnection, VoiceConnectionStatus.Ready, 15000).catch(() => {
+                console.log(`[Stream] Voice join timeout, continuing without voice`);
+                voiceConnection = null;
+              });
+            }
+          }
+        } catch (e) {
+          console.log(`[Stream] Voice join skipped: ${e.message}`);
+        }
       }
-
-      if (!voiceChannel.isVoiceBased()) {
-        console.error(`[Stream] Channel is not voice-based: ${voiceChannel.type}`);
-        return false;
-      }
-
-      console.log(`[Stream] Joining voice channel: ${voiceChannel.name} (${voiceChannelId})`);
-      console.log(`[Stream] Bot permissions: ${voiceChannel.permissionsFor(this.client.user).toArray().join(', ')}`);
-
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: guild.id,
-        adapterCreator: guild.voiceAdapterCreator,
-        selfDeaf: true,
-        selfMute: false
-      });
-
-      console.log(`[Stream] joinVoiceChannel called, waiting for ready state...`);
 
       const stream = {
         active: true,
-        connection,
-        connectionStatus: 'connecting',
-        voiceChannel,
-        frameBuffer: [],
+        connection: voiceConnection,
+        channel: textChannel,
         frameCount: 0,
         lastFrameAt: 0,
+        lastMsgId: null,
         config: {
-          fps: config.fps || 30,
-          width: config.width || 480,
-          height: config.height || 360,
-          bitrate: 1000000
+          fps: Math.min(config.fps || 5, 10),
+          width: config.width || 640,
+          height: config.height || 480
         },
-        ffmpeg: null,
-        startTime: Date.now()
+        startTime: Date.now(),
+        sendInterval: null
       };
 
-      this.streams.set(deviceId, stream);
-
-      try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 30000);
-        stream.connectionStatus = 'ready';
-        console.log(`[Stream] Voice connection READY for ${deviceId}`);
-      } catch (e) {
-        console.error(`[Stream] Connection timeout (30s) for ${deviceId}:`, e.message);
-        console.error(`[Stream] Current state: ${connection.state.status}`);
-        stream.connectionStatus = `timeout (${connection.state.status})`;
-        try {
-          connection.destroy();
-        } catch (d) {}
-        this.streams.delete(deviceId);
-        return false;
-      }
-
-      connection.on(VoiceConnectionStatus.Disconnected, () => {
-        console.log(`[Stream] Disconnected for ${deviceId}, attempting reconnect...`);
-        stream.connectionStatus = 'reconnecting';
-        try {
-          setTimeout(() => {
-            connection.rejoin({ channelId: voiceChannel.id });
-          }, 5000);
-        } catch (e) {
+      stream.sendInterval = setInterval(() => {
+        if (!stream.active) return;
+        const timeSinceLastFrame = Date.now() - stream.lastFrameAt;
+        if (timeSinceLastFrame > 10000) {
+          console.log(`[Stream] ${deviceId}: no frames for 10s, stopping`);
           this.stopStream(deviceId);
         }
-      });
+      }, 10000);
 
-      connection.on(VoiceConnectionStatus.Destroyed, () => {
-        console.log(`[Stream] Connection destroyed for ${deviceId}`);
-        stream.active = false;
-        stream.connectionStatus = 'destroyed';
-      });
-
-      connection.on('stateChange', (oldState, newState) => {
-        console.log(`[Stream] ${deviceId} state: ${oldState.status} -> ${newState.status}`);
-      });
-
-      this.startFFmpegStream(stream, deviceId);
+      this.streams.set(deviceId, stream);
+      console.log(`[Stream] Text stream ready for ${deviceId} at ${stream.config.fps}fps`);
       return true;
     } catch (err) {
-      console.error(`[Stream] Failed to start stream for ${deviceId}:`, err.message);
-      console.error(err.stack);
+      console.error(`[Stream] Failed to start:`, err.message);
       return false;
     }
   }
 
-  startFFmpegStream(stream, deviceId) {
-    const { fps, width, height } = stream.config;
+  async sendFrameToChannel(stream, frameData) {
+    const now = Date.now();
+    const frameInterval = 1000 / stream.config.fps;
+    if (now - stream.lastFrameAt < frameInterval) return;
 
-    const ffmpegArgs = [
-      '-f', 'h264',
-      '-framerate', String(fps),
-      '-i', 'pipe:0',
-      '-f', 'rawvideo',
-      '-pix_fmt', 'yuv420p',
-      '-s', `${width}x${height}`,
-      '-r', String(fps),
-      'pipe:1'
-    ];
+    stream.lastFrameAt = now;
 
-    console.log(`[Stream] Starting FFmpeg: ${ffmpegArgs.join(' ')}`);
+    try {
+      const { AttachmentBuilder } = await import('discord.js');
+      const attachment = new AttachmentBuilder(frameData, { name: 'frame.jpg' });
 
-    stream.ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    stream.ffmpeg.on('error', (err) => {
-      console.error(`[Stream] FFmpeg process error for ${deviceId}:`, err.message);
-    });
-
-    stream.ffmpeg.on('close', (code) => {
-      console.log(`[Stream] FFmpeg exited for ${deviceId} with code ${code}`);
-      if (stream.active) {
-        console.log(`[Stream] Restarting FFmpeg for ${deviceId}`);
-        this.startFFmpegStream(stream, deviceId);
+      if (stream.lastMsgId) {
+        try {
+          const msg = await stream.channel.messages.fetch(stream.lastMsgId).catch(() => null);
+          if (msg) {
+            await msg.edit({ attachments: [attachment] }).catch(() => {});
+            return;
+          }
+        } catch (_) {}
       }
-    });
 
-    stream.ffmpeg.stderr.on('data', (data) => {
-      const msg = data.toString();
-      if (msg.includes('Error') || msg.includes('error') || msg.includes('Invalid')) {
-        console.error(`[Stream] FFmpeg stderr: ${msg.trim()}`);
+      const newMsg = await stream.channel.send({ attachments: [attachment] }).catch(() => null);
+      if (newMsg) {
+        stream.lastMsgId = newMsg.id;
+        if (stream.frameCount > 5) {
+          const oldMsgId = stream.lastMsgId;
+          setTimeout(async () => {
+            try {
+              const oldMsg = await stream.channel.messages.fetch(oldMsgId).catch(() => null);
+              if (oldMsg) await oldMsg.delete().catch(() => {});
+            } catch (_) {}
+          }, 2000);
+        }
       }
-    });
-
-    console.log(`[Stream] FFmpeg ready for ${deviceId} at ${fps}fps ${width}x${height}`);
+    } catch (e) {
+      console.error(`[Stream] Send frame error:`, e.message);
+    }
   }
 
   stopStream(deviceId) {
@@ -268,21 +210,16 @@ class VideoStreamManager extends EventEmitter {
     console.log(`[Stream] Stopping stream for ${deviceId}`);
     stream.active = false;
 
-    if (stream.ffmpeg) {
-      try {
-        stream.ffmpeg.stdin?.end();
-        stream.ffmpeg.kill('SIGTERM');
-      } catch (e) {}
-      stream.ffmpeg = null;
+    if (stream.sendInterval) {
+      clearInterval(stream.sendInterval);
+      stream.sendInterval = null;
     }
 
     if (stream.connection) {
-      try {
-        stream.connection.destroy();
-      } catch (e) {}
+      try { stream.connection.destroy(); } catch (_) {}
+      stream.connection = null;
     }
 
-    stream.frameBuffer = [];
     this.streams.delete(deviceId);
   }
 
@@ -297,15 +234,12 @@ class VideoStreamManager extends EventEmitter {
         fps: s.config.fps,
         resolution: `${s.config.width}x${s.config.height}`,
         frames: s.frameCount,
-        connection: s.connectionStatus,
+        connection: s.connection ? 'voice+text' : 'text-only',
         uptime: Math.floor((Date.now() - s.startTime) / 1000)
       });
     }
 
-    return {
-      total: streams.length,
-      streams
-    };
+    return { total: streams.length, streams };
   }
 }
 

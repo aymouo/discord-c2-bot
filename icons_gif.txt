@@ -1,8 +1,8 @@
 footer=https://cdn.discordapp.com/emojis/865916418909536276.gif
 alert=https://cdn.discordapp.com/emojis/996431685358981201.gif
 correct=https://cdn.discordapp.com/emojis/1087275448951648387.gif
-extra1=https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExdTE3ajYwdXUzNnRhY3AzdzVqcWRuYXoxZ2g0MWMydmpweG95cHNuZyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/r6OGS3FPHQQC1CfjrN/giphy.gif
-extra2=https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3Ym1kMGlyOWRwOG4wNDc3cnZodnk4ZGdyYno0bWV5Ynd0NnhyNjFlYSZlcD12MV9zdGlja2Vyc19yZWxhdGVkJmN0PXM/nqtXkNxBRIiYNwUsrC/giphy.gif
-extra3=https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3eTZjNXpkd3d0MWJiN2l4djdhdmZtbDZvMHRtMnZtMWRseTB3dTRpZyZlcD12MV9zdGlja2Vyc19yZWxhdGVkJmN0PXM/Iya6XCBKFRQAEJAIxT/giphy.gif
-extra4=https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NHBsbG52NWtwOThmaWNpMW15ZTZreXNxajZmaTQ5ZTlrOGp6NXg0dyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/f3dlazUQ9zqd2uxU6O/giphy.gif
-extra5=https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3Zzd3Y2RmNW9oeWlneXNvczVwZGFlcHA5YmhpNW5vbm5taHlhZm92bCZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/TZbrjaSqkDsOI/giphy.gif
+extra1=https://cdn.discordapp.com/emojis/1030871498682085457.gif
+extra2=https://cdn.discordapp.com/emojis/959867418948792381.gif
+extra3=https://cdn.discordapp.com/emojis/1003408375217995806.gif
+extra4=https://cdn.discordapp.com/emojis/992870945799557120.gif
+extra5=https://cdn.discordapp.com/emojis/1003408375217995806.gif
