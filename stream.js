@@ -1,4 +1,5 @@
 import express from 'express';
+import { AttachmentBuilder } from 'discord.js';
 
 class VideoStreamManager {
   constructor() {
@@ -41,7 +42,10 @@ class VideoStreamManager {
       const deviceId = req.params.deviceId;
       const { voiceChannelId, guildId, textChannelId, fps = 5, width = 640, height = 480 } = req.body;
 
+      console.log(`[Stream] Start request: deviceId=${deviceId} textCh=${textChannelId} voiceCh=${voiceChannelId} guild=${guildId}`);
+
       if (!this.client || !this.ready) {
+        console.error(`[Stream] Bot not ready: client=${!!this.client} ready=${this.ready}`);
         return res.status(503).json({ status: 'bot_not_ready' });
       }
 
@@ -92,7 +96,7 @@ class VideoStreamManager {
     this.stopStream(deviceId);
 
     try {
-      console.log(`[Stream] Starting text stream for ${deviceId}`);
+      console.log(`[Stream] Starting stream for ${deviceId}, textChannel=${config.textChannelId}`);
 
       const textChannel = await this.client.channels.fetch(config.textChannelId).catch(e => {
         console.error(`[Stream] Text channel fetch failed: ${e.message}`);
@@ -104,35 +108,10 @@ class VideoStreamManager {
         return false;
       }
 
-      let voiceConnection = null;
-      if (config.voiceChannelId && config.guildId) {
-        try {
-          const guild = await this.client.guilds.fetch(config.guildId).catch(() => null);
-          if (guild) {
-            const voiceChannel = await guild.channels.fetch(config.voiceChannelId).catch(() => null);
-            if (voiceChannel && voiceChannel.isVoiceBased()) {
-              const { joinVoiceChannel, entersState, VoiceConnectionStatus } = await import('@discordjs/voice');
-              voiceConnection = joinVoiceChannel({
-                channelId: voiceChannel.id,
-                guildId: guild.id,
-                adapterCreator: guild.voiceAdapterCreator,
-                selfDeaf: true,
-                selfMute: true
-              });
-              await entersState(voiceConnection, VoiceConnectionStatus.Ready, 15000).catch(() => {
-                console.log(`[Stream] Voice join timeout, continuing without voice`);
-                voiceConnection = null;
-              });
-            }
-          }
-        } catch (e) {
-          console.log(`[Stream] Voice join skipped: ${e.message}`);
-        }
-      }
+      console.log(`[Stream] Text channel found: ${textChannel.name}`);
 
       const stream = {
         active: true,
-        connection: voiceConnection,
         channel: textChannel,
         frameCount: 0,
         lastFrameAt: 0,
@@ -149,14 +128,14 @@ class VideoStreamManager {
       stream.sendInterval = setInterval(() => {
         if (!stream.active) return;
         const timeSinceLastFrame = Date.now() - stream.lastFrameAt;
-        if (timeSinceLastFrame > 10000) {
-          console.log(`[Stream] ${deviceId}: no frames for 10s, stopping`);
+        if (timeSinceLastFrame > 15000) {
+          console.log(`[Stream] ${deviceId}: no frames for 15s, stopping`);
           this.stopStream(deviceId);
         }
       }, 10000);
 
       this.streams.set(deviceId, stream);
-      console.log(`[Stream] Text stream ready for ${deviceId} at ${stream.config.fps}fps`);
+      console.log(`[Stream] Stream ready for ${deviceId} at ${stream.config.fps}fps`);
       return true;
     } catch (err) {
       console.error(`[Stream] Failed to start:`, err.message);
@@ -172,7 +151,6 @@ class VideoStreamManager {
     stream.lastFrameAt = now;
 
     try {
-      const { AttachmentBuilder } = await import('discord.js');
       const attachment = new AttachmentBuilder(frameData, { name: 'frame.jpg' });
 
       if (stream.lastMsgId) {
@@ -188,14 +166,14 @@ class VideoStreamManager {
       const newMsg = await stream.channel.send({ attachments: [attachment] }).catch(() => null);
       if (newMsg) {
         stream.lastMsgId = newMsg.id;
-        if (stream.frameCount > 5) {
+        if (stream.frameCount > 10) {
           const oldMsgId = stream.lastMsgId;
           setTimeout(async () => {
             try {
               const oldMsg = await stream.channel.messages.fetch(oldMsgId).catch(() => null);
               if (oldMsg) await oldMsg.delete().catch(() => {});
             } catch (_) {}
-          }, 2000);
+          }, 3000);
         }
       }
     } catch (e) {
@@ -215,11 +193,6 @@ class VideoStreamManager {
       stream.sendInterval = null;
     }
 
-    if (stream.connection) {
-      try { stream.connection.destroy(); } catch (_) {}
-      stream.connection = null;
-    }
-
     this.streams.delete(deviceId);
   }
 
@@ -234,7 +207,7 @@ class VideoStreamManager {
         fps: s.config.fps,
         resolution: `${s.config.width}x${s.config.height}`,
         frames: s.frameCount,
-        connection: s.connection ? 'voice+text' : 'text-only',
+        connection: 'text-channel',
         uptime: Math.floor((Date.now() - s.startTime) / 1000)
       });
     }
