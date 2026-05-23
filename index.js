@@ -17,6 +17,7 @@ import { btn, actionRow, paginationRow, bloodEmbed } from './bot/embeds.js'
 import { getPhantomChannels, findPhantomChannel, resolveTarget, requireTarget } from './bot/target.js'
 import { collectChannelResponse } from './bot/collector.js'
 import { createStateStore, reviveMaps } from './bot/state.js'
+import { formatDeviceResponse } from './bot/formatter.js'
 
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -797,12 +798,20 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 })
 
-// ── HEARTBEAT WATCHER ───────────────────────────────────────────────────
-client.on(Events.MessageCreate, (msg) => {
+// ── HEARTBEAT WATCHER + RESPONSE FORMATTER ─────────────────────────────
+client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot && msg.channel.name?.startsWith('device-')) {
     const c = msg.content || ''
     if (c.includes(':heartbeat:') || c.includes('**Alive**') || c.includes('**Device Online**') || c.includes('**Reconnected**') || c.includes(':green_circle:')) {
       deviceStatus.set(msg.channel.id, { online: true, lastSeen: msg.createdTimestamp, name: msg.channel.name })
+    }
+    if (c.length > 2 && !msg.embeds.length) {
+      try {
+        const formatted = formatDeviceResponse(c)
+        if (formatted) {
+          await msg.edit({ content: '', embeds: formatted.embeds }).catch(() => {})
+        }
+      } catch {}
     }
   }
 })

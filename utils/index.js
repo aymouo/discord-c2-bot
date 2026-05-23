@@ -78,6 +78,7 @@ export const C = {
   madara: 0x800000, obito: 0xA52A2A, fire: 0xFF7F50,
   shadow: 0x2F4F4F, curse: 0x8B008B, sealing: 0x4B0082,
   nova: 0xDC143C, crimson: 0x8B0000, bloodred: 0x660000,
+  info: 0x3498DB,
 }
 
 export const E = {
