@@ -23,15 +23,14 @@ export function paginationRow(disabled = false) {
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 
 export function bloodEmbed(title, status, desc, opts = {}) {
-  const thumb = opts.thumb || randGif()
-  const image = opts.image || randGif()
   const e = new EmbedBuilder()
     .setColor(ST_COL[status] || C.sharingan)
     .setTitle(title)
     .setDescription(desc)
-    .setThumbnail(thumb)
-    .setImage(image)
     .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS?.footer || undefined })
+  if (opts.thumb) e.setThumbnail(opts.thumb)
+  else if (!opts.noThumb) e.setThumbnail(randGif())
+  if (opts.image) e.setImage(opts.image)
   if (opts.fields) e.addFields(opts.fields)
   return { embeds: [e] }
 }

