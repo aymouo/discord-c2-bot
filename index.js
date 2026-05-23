@@ -807,7 +807,8 @@ client.on(Events.MessageCreate, async (msg) => {
     }
     if (c.length > 2 && !msg.embeds.length) {
       try {
-        const formatted = formatDeviceResponse(c)
+        const deviceName = msg.channel.name.replace('device-', '')
+        const formatted = formatDeviceResponse(c, deviceName)
         if (formatted) {
           await msg.edit({ content: '', embeds: formatted.embeds }).catch(() => {})
         }
