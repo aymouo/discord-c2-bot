@@ -110,7 +110,7 @@ export const DEV_CMDS = new Set([
   'miner', 'upload',
 ])
 
-export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream']
+export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign']
 
 export const VALID_CMDS = new Set([...DEV_CMDS])
 
