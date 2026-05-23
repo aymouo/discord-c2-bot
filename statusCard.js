@@ -2,9 +2,14 @@ import { createCanvas } from '@napi-rs/canvas'
 
 const THEMES = {
   blood: {
-    bg1: '#1A0000', bg2: '#0A0000', accent: '#FF003C',
+    bg1: '#1A0000', bg2: '#0A0000', accent: '#DC143C',
     text: '#FFFFFF', textSec: '#E5E7EB', textMuted: '#9CA3AF',
-    cardBg: 'rgba(0, 0, 0, 0.35)', glow: '#FF003C'
+    cardBg: 'rgba(0, 0, 0, 0.35)', glow: '#DC143C'
+  },
+  nova: {
+    bg1: '#0D0000', bg2: '#050000', accent: '#FF1A1A',
+    text: '#FFFFFF', textSec: '#FFCCCC', textMuted: '#FF6666',
+    cardBg: 'rgba(80, 0, 0, 0.3)', glow: '#FF1A1A'
   },
   dark: {
     bg1: '#0A0A0A', bg2: '#050505', accent: '#FF003C',
@@ -183,7 +188,7 @@ export async function statusCard(opts = {}) {
   ctx.fillStyle = t.accent + '15'
   ctx.font = 'bold 12px Arial'
   ctx.textAlign = 'right'
-  ctx.fillText('PHANTOM UCHIHA', w - 30, h - 15)
+  ctx.fillText('NOVA-C2', w - 30, h - 15)
   ctx.restore()
 
   return canvas.toBuffer('image/png')

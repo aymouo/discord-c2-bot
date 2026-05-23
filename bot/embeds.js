@@ -27,7 +27,7 @@ export function bloodEmbed(title, status, desc, opts = {}) {
     .setColor(ST_COL[status] || C.sharingan)
     .setTitle(title)
     .setDescription(desc)
-    .setFooter({ text: opts.footer || `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS?.footer || undefined })
+    .setFooter({ text: opts.footer || `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS?.footer || undefined })
   if (opts.thumb) e.setThumbnail(opts.thumb)
   else if (!opts.noThumb) e.setThumbnail(randGif())
   if (opts.image) e.setImage(opts.image)

