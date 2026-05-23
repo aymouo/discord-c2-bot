@@ -1706,6 +1706,27 @@ client.on(Events.GuildDelete, (guild) => {
   console.log(`[-] Left guild: ${guild.name} — cleaned up`)
 })
 
+client.on(Events.ChannelCreate, async (ch) => {
+  if (ch.type === ChannelType.GuildText && ch.name.startsWith('device-')) {
+    console.log(`[+] New device channel: ${ch.name} in ${ch.guild?.name}`)
+    deviceStatus.set(ch.id, { online: false, lastSeen: Date.now(), name: ch.name })
+    const alertChId = ALERTS_CHANNEL_ID || ALLOWED_CHANNEL_ID
+    if (alertChId) {
+      const alertCh = client.channels.cache.get(alertChId)
+      if (alertCh) {
+        const deviceName = ch.name.replace('device-', '')
+        alertCh.send({ embeds: [new EmbedBuilder()
+          .setColor(0x00ff88)
+          .setTitle(`${E.zap} NEW DEVICE`)
+          .setDescription(`**${deviceName}** connected`)
+          .setFooter({ text: `${E.skull} PHANTOM UCHIHA ⚡ ${ts()}` })
+          .setTimestamp()
+        ]}).catch(() => {})
+      }
+    }
+  }
+})
+
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 
 function shutdown() {
