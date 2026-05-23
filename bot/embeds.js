@@ -1,5 +1,6 @@
 import { EmbedBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js'
 import { C, E, bold, ts, randGif } from '../utils/index.js'
+import { ICONS } from '../icons.js'
 
 export function btn(id, label, emoji, style = 'danger') {
   const STYLES = { primary: ButtonStyle.Primary, secondary: ButtonStyle.Secondary, success: ButtonStyle.Success, danger: ButtonStyle.Danger }

@@ -2,7 +2,7 @@ import fs from 'fs'
 
 const GIFS = fs.readFileSync(new URL('../gif.txt', import.meta.url), 'utf8').split('\n').filter(l => l.trim()).map(l => l.trim())
 
-export function randGif() { return GIFS.length ? GIFS[Math.floor(Math.random() * GIFS.length)] : null }
+export function randGif() { return GIFS.length ? GIFS[Math.floor(Math.random() * GIFS.length)] : undefined }
 
 export function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
