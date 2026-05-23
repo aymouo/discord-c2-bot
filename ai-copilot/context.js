@@ -79,7 +79,7 @@ export class AIContext {
 
   addToHistory(session, role, content) {
     session.conversationHistory.push({ role, content, timestamp: Date.now() })
-    if (session.conversationHistory.length > 20) {
+    if (session.conversationHistory.length > 30) {
       session.conversationHistory.shift()
     }
     session.lastActivity = Date.now()

