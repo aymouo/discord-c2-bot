@@ -1160,9 +1160,6 @@ client.once(Events.ClientReady, async () => {
   videoStream.client = client
   videoStream.startServer()
 
-  const { aiContext } = await import('./ai-copilot/context.js')
-  const { campaignManager } = await import('./ai-copilot/campaign.js')
-
   setInterval(() => {
     const mem = process.memoryUsage()
     console.log(`[MEM] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB | Targets: ${targets.size} | Devices: ${deviceStatus.size}`)
@@ -1212,8 +1209,8 @@ client.on(Events.ChannelCreate, async (ch) => {
 // ── Graceful shutdown ──────────────────────────────────────────────────
 process.on('SIGINT', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
 process.on('SIGTERM', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
-process.on('uncaughtException', (err) => { console.error('[FATAL]', err.message) })
-process.on('unhandledRejection', (reason) => { console.error('[FATAL] Unhandled:', reason) })
+process.on('uncaughtException', (err) => { console.error('[FATAL]', err.message); process.exit(1) })
+process.on('unhandledRejection', (reason) => { console.error('[FATAL] Unhandled:', reason); process.exit(1) })
 client.on(Events.Warn, (info) => { console.log(`[Gateway] Warn: ${info}`) })
 client.on(Events.Error, (error) => { console.error(`[Gateway] Error: ${error.message}`) })
 client.on(Events.ShardDisconnect, (event) => { console.log(`[Gateway] Disconnected: ${event.code}`) })

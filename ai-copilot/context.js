@@ -97,7 +97,7 @@ export class AIContext {
   summarizeDeviceKnowledge(session) {
     const summary = []
     for (const [chId, dev] of session.deviceKnowledge) {
-      const name = dev.model !== '?' ? dev.model : chId.replace('phantom-', '')
+      const name = dev.model !== '?' ? dev.model : chId.replace(/^device-/, '')
       summary.push(`Device: ${name} (${chId})`)
       if (dev.owner) summary.push(`  Owner: ${dev.owner}`)
       if (dev.location) summary.push(`  Location: ${dev.location}`)

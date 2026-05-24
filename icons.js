@@ -1,7 +1,7 @@
-import fs from 'fs'
+import { readFileSync } from 'fs'
 
 const ICONS = {}
-const RAW = fs.readFileSync(new URL('icons_gif.txt', import.meta.url), 'utf8')
+const RAW = readFileSync(new URL('icons_gif.txt', import.meta.url), 'utf8')
 for (const line of RAW.split('\n')) {
   const trimmed = line.trim()
   if (!trimmed || !trimmed.includes('=')) continue

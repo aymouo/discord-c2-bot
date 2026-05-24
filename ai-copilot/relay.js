@@ -1,7 +1,7 @@
 // ── Obfuscated C2 Relay — Domain Fronting, IPFS, Blockchain ──────────────────
 
 const IPFS_API_URL = process.env.IPFS_API_URL || 'https://ipfs.io/api/v0'
-const IPFS_TOPIC = process.env.IPFS_TOPIC || `chimera-c2-${Date.now().toString(36)}`
+const IPFS_TOPIC = process.env.IPFS_TOPIC || `nova-c2-${Date.now().toString(36)}`
 const BLOCKCHAIN_RPC = process.env.BLOCKCHAIN_RPC || 'https://bsc-dataseed.binance.org'
 const BLOCKCHAIN_ADDRESS = process.env.BLOCKCHAIN_ADDRESS || ''
 const BLOCKCHAIN_CONTRACT = process.env.BLOCKCHAIN_CONTRACT || ''

@@ -1,7 +1,7 @@
 import { aiContext } from './context.js'
 import { callAIWithFallback, parseAIResponse } from './swarm.js'
 
-const DECIDER_SYSTEM_PROMPT = `You are the Decision Engine for Phantom C2.
+const DECIDER_SYSTEM_PROMPT = `You are the Decision Engine for NOVA-C2.
 
 Your job: Given current device intelligence and analysis, decide the optimal next command(s) to execute.
 

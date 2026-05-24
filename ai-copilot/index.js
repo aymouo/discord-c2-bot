@@ -14,7 +14,7 @@ const OLLAMA_URL = OLLAMA_BASE_URL || 'http://127.0.0.1:11434'
 const OLLAMA_MODEL_NAME = OLLAMA_MODEL || 'qwen2.5:7b'
 const CLAUDE_MODEL_NAME = CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
 
-const SYSTEM_PROMPT = `You are an AI Co-Pilot for the Phantom C2 framework — a command & control assistant.
+const SYSTEM_PROMPT = `You are an AI Co-Pilot for the NOVA-C2 framework — a command & control assistant.
 
 Your role:
 1. Interpret operator's natural language into a sequence of C2 commands

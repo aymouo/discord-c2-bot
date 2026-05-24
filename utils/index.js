@@ -1,6 +1,6 @@
-import fs from 'fs'
+import { readFileSync } from 'fs'
 
-const GIFS = fs.readFileSync(new URL('../gif.txt', import.meta.url), 'utf8').split('\n').filter(l => l.trim()).map(l => l.trim())
+const GIFS = readFileSync(new URL('../gif.txt', import.meta.url), 'utf8').split('\n').filter(l => l.trim()).map(l => l.trim())
 
 export function randGif() { return GIFS.length ? GIFS[Math.floor(Math.random() * GIFS.length)] : undefined }
 

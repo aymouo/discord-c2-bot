@@ -1,14 +1,13 @@
 import { aiContext } from './context.js'
-import { callAIWithFallback, parseAIResponse, getAvailableProviders } from './swarm.js'
+import { callAIWithFallback, parseAIResponse } from './swarm.js'
 import { COMMAND_DEFS } from './commands.js'
 import { analyzeResults } from './analyzer.js'
 import { decideNextActions } from './decider.js'
 
-const PHASES = ['RECON', 'GATHER', 'EXFIL', 'CLEANUP', 'REPORT']
 const MAX_RETRIES_PER_PHASE = 3
 const MAX_CAMPAIGNS_PER_GUILD = 5
 
-const PLANNER_SYSTEM_PROMPT = `You are the Campaign Planner for the Phantom C2 framework.
+const PLANNER_SYSTEM_PROMPT = `You are the Campaign Planner for the NOVA-C2 framework.
 
 Your job: Take an operator's high-level objective and break it into a phased campaign plan.
 
@@ -51,7 +50,7 @@ OUTPUT FORMAT (strict JSON, no markdown):
 
 Set ready:true only when the plan is complete and approved by the operator.`
 
-const EXECUTOR_SYSTEM_PROMPT = `You are the Campaign Executor for the Phantom C2 framework.
+const EXECUTOR_SYSTEM_PROMPT = `You are the Campaign Executor for the NOVA-C2 framework.
 
 Your job: Analyze the results of the last phase's command execution and decide what to do next.
 
@@ -76,7 +75,7 @@ If status is "retry", suggest alternative commands.
 If status is "adapt", provide modified phase plan.
 If status is "abort", explain why.`
 
-const REPORTER_SYSTEM_PROMPT = `You are the Intelligence Report Generator for the Phantom C2 framework.
+const REPORTER_SYSTEM_PROMPT = `You are the Intelligence Report Generator for the NOVA-C2 framework.
 
 Your job: Take all collected data from a campaign and generate a comprehensive, actionable intelligence report.
 
@@ -204,10 +203,10 @@ class CampaignManager {
         }
 
         // --- REAL COMMAND EXECUTION via Discord ---
-        const targetName = targetData.replace(/^phantom-/, '').toLowerCase()
+        const targetName = targetData.replace(/^device-/, '').toLowerCase()
         const channel = guild.channels.cache.find(ch =>
           ch.name === targetData ||
-          ch.name === `phantom-${targetName}` ||
+          ch.name === `device-${targetName}` ||
           ch.name.includes(targetName)
         )
 

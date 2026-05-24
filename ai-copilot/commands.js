@@ -2,7 +2,7 @@ export const COMMAND_DEFS = [
   {
     cmd: '!target',
     args: '<device-name>',
-    description: 'Target a specific device by its phantom channel name (e.g., !target phantom-pixel7 or !target pixel7)',
+    description: 'Target a specific device by its channel name (e.g., !target device-pixel7 or !target pixel7)',
     category: 'targeting',
     output: 'Confirms the targeted device',
   },
@@ -288,7 +288,7 @@ export function generateCommandsSummary() {
   for (const [cat, cmds] of Object.entries(byCat)) {
     output += `\n=== ${cat.toUpperCase()} ===\n`
     for (const c of cmds) {
-      output += `!${c.cmd} ${c.args} — ${c.description}\n`
+      output += `${c.cmd} ${c.args} — ${c.description}\n`
     }
   }
   return output
