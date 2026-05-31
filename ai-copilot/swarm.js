@@ -1,12 +1,22 @@
-const { AI_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_API_KEY, CLAUDE_MODEL } = process.env
+const { AI_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_API_KEY, CLAUDE_MODEL, NVIDIA_API_KEY, NVIDIA_MODEL } = process.env
 
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL || 'gemini-2.0-flash'}:generateContent`
 const OLLAMA_URL = `${OLLAMA_BASE_URL || 'http://127.0.0.1:11434'}/api/chat`
 const CLAUDE_URL = 'https://api.anthropic.com/v1/messages'
+const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const OLLAMA_MODEL_NAME = OLLAMA_MODEL || 'qwen2.5:7b'
 const CLAUDE_MODEL_NAME = CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
+const NVIDIA_MODEL_NAME = NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct'
 
 const PROVIDERS = {
+  nvidia: {
+    available: !!NVIDIA_API_KEY,
+    cost: 'free',
+    tier: 'fast',
+    maxTokens: 4096,
+    capabilities: ['planning', 'analysis', 'reporting', 'classification'],
+    failureThreshold: 0,
+  },
   gemini: {
     available: !!GEMINI_API_KEY,
     cost: 'free',
@@ -58,6 +68,7 @@ async function callProvider(provider, systemPrompt, messages, opts = {}) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       switch (provider) {
+        case 'nvidia': return await callNvidia(systemPrompt, messages)
         case 'gemini': return await callGemini(systemPrompt, messages)
         case 'ollama': return await callOllama(systemPrompt, messages)
         case 'claude': return await callClaude(systemPrompt, messages)
@@ -149,6 +160,19 @@ async function callClaude(systemPrompt, messages) {
   if (!resp.ok) throw new Error(`Claude ${resp.status}: ${await resp.text().catch(() => '')}`)
   const data = await resp.json()
   return data.content?.[0]?.text || ''
+}
+
+async function callNvidia(systemPrompt, messages) {
+  const allMessages = [{ role: 'system', content: systemPrompt }, ...messages]
+  const resp = await fetch(NVIDIA_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${NVIDIA_API_KEY}` },
+    body: JSON.stringify({ model: NVIDIA_MODEL_NAME, messages: allMessages, max_tokens: 4096, temperature: 0.1 }),
+    signal: AbortSignal.timeout(60000),
+  })
+  if (!resp.ok) throw new Error(`NVIDIA ${resp.status}: ${await resp.text().catch(() => '')}`)
+  const data = await resp.json()
+  return data.choices?.[0]?.message?.content || ''
 }
 
 export function parseAIResponse(text) {

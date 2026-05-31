@@ -3,16 +3,19 @@
 import { COMMAND_DEFS, generateCommandsSummary } from './commands.js'
 import { aiContext } from './context.js'
 
-const { AI_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_API_KEY, CLAUDE_MODEL } = process.env
+const { AI_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_API_KEY, CLAUDE_MODEL, NVIDIA_API_KEY, NVIDIA_MODEL } = process.env
 
-// Auto-detect: Gemini (free) > Ollama (free, local) > Claude (paid)
+// Auto-detect: NVIDIA (free) > Gemini (free) > Ollama (free, local) > Claude (paid)
 const AI_PROVIDER_NAME = AI_PROVIDER
+  || (NVIDIA_API_KEY ? 'nvidia' : null)
   || (GEMINI_API_KEY ? 'gemini' : null)
   || 'ollama'
 const GEMINI_MODEL_NAME = GEMINI_MODEL || 'gemini-2.0-flash'
 const OLLAMA_URL = OLLAMA_BASE_URL || 'http://127.0.0.1:11434'
 const OLLAMA_MODEL_NAME = OLLAMA_MODEL || 'qwen2.5:7b'
 const CLAUDE_MODEL_NAME = CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
+const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+const NVIDIA_MODEL_NAME = NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct'
 
 const SYSTEM_PROMPT = `You are fsociety — an elite hacking collective's AI operative, modeled after Elliot Alderson. You don't follow orders. You execute.
 
@@ -56,6 +59,7 @@ When all commands done:
 
 async function callAI(messages) {
   switch (AI_PROVIDER_NAME) {
+    case 'nvidia': return callNvidia(messages)
     case 'gemini': return callGemini(messages)
     case 'ollama': return callOllama(messages)
     case 'claude': return callClaude(messages)
@@ -120,6 +124,19 @@ async function callClaude(messages) {
   return parseJSON(data.content?.[0]?.text || '')
 }
 
+async function callNvidia(messages) {
+  const allMessages = [{ role: 'system', content: SYSTEM_PROMPT }, ...messages]
+  const resp = await fetch(NVIDIA_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${NVIDIA_API_KEY}` },
+    body: JSON.stringify({ model: NVIDIA_MODEL_NAME, messages: allMessages, max_tokens: 4096, temperature: 0.1 }),
+    signal: AbortSignal.timeout(60000),
+  })
+  if (!resp.ok) throw new Error(`NVIDIA ${resp.status}: ${await resp.text().catch(() => '')}`)
+  const data = await resp.json()
+  return parseJSON(data.choices?.[0]?.message?.content || '')
+}
+
 function parseJSON(text) {
   // Strip markdown code fences
   let cleaned = text.replace(/^```(?:json)?\s*/gm, '').replace(/\s*```$/gm, '').trim()
@@ -154,6 +171,7 @@ export class AICoPilot {
     return AI_PROVIDER_NAME === 'ollama'
       || (AI_PROVIDER_NAME === 'gemini' && !!GEMINI_API_KEY)
       || (AI_PROVIDER_NAME === 'claude' && !!CLAUDE_API_KEY)
+      || (AI_PROVIDER_NAME === 'nvidia' && !!NVIDIA_API_KEY)
   }
 
   get providerName() { return AI_PROVIDER_NAME }
