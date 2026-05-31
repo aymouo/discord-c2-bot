@@ -64,6 +64,7 @@ async function callAI(messages) {
 }
 
 async function callGemini(messages) {
+  console.log(`[Gemini] Sending ${messages.length} messages to ${GEMINI_MODEL_NAME}`)
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -78,9 +79,16 @@ async function callGemini(messages) {
     }),
     signal: AbortSignal.timeout(60000),
   })
-  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text().catch(() => '')}`)
+  console.log(`[Gemini] Response status: ${resp.status}`)
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '')
+    console.error(`[Gemini] ERROR ${resp.status}: ${errText}`)
+    throw new Error(`Gemini ${resp.status}: ${errText}`)
+  }
   const data = await resp.json()
-  return parseJSON(data.candidates?.[0]?.content?.parts?.[0]?.text || '')
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  console.log(`[Gemini] Response text: ${text.slice(0, 200)}`)
+  return parseJSON(text)
 }
 
 async function callOllama(messages) {
@@ -166,12 +174,15 @@ export class AICoPilot {
   }
 
   async processRequest(guildId, userId, userMessage) {
+    console.log(`[AI] processRequest called: guild=${guildId}, user=${userId}`)
     let session = aiContext.getSession(guildId, userId)
     if (!session) session = aiContext.createSession(guildId, userId)
     const ctx = aiContext.summarizeDeviceKnowledge(session)
     const input = ctx ? `CURRENT DEVICE KNOWLEDGE:\n${ctx}\n\nUSER REQUEST: ${userMessage}` : `USER REQUEST: ${userMessage}`
     aiContext.addToHistory(session, 'user', input)
+    console.log(`[AI] Calling Gemini API...`)
     const response = await this.callClaude(session, input)
+    console.log(`[AI] Gemini response: ${JSON.stringify(response).slice(0, 200)}`)
     aiContext.addToHistory(session, 'assistant', JSON.stringify(response))
     aiContext.setPendingProposal(session, response)
     return { session, response }
