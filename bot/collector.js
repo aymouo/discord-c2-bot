@@ -36,7 +36,7 @@ export async function collectChannelResponse(channel, cmdName, timeoutMs = 30000
         seen.add(dedup)
         newCount++
         const attachments = m.attachments.map(a => `[FILE: ${a.name} (${formatSize(a.size)})]`).join(' ')
-        parts.push((attachments ? text + ' ' + attachments : text).slice(0, 1500))
+        parts.push((attachments ? text + ' ' + attachments : text).slice(0, 1900))
       }
       if (newCount === 0) {
         stableCount++

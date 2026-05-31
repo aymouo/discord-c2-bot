@@ -119,10 +119,10 @@ export function formatDeviceResponse(content, deviceName = 'Device') {
     color = C.crimson
   }
 
-  const desc = descLines.filter(l => l.trim()).join('\n').slice(0, 1000) || ''
+  const desc = descLines.filter(l => l.trim()).join('\n').slice(0, 4000) || ''
   const embedDesc = fields.length > 0
     ? (desc || 'Response received')
-    : `\`\`\`${content.replace(/`/g, '\u200B`').slice(0, 4000)}\`\`\``
+    : `\`\`\`${content.replace(/`/g, '\u200B`').slice(0, 4080)}\`\`\``
   const embed = new EmbedBuilder()
     .setColor(color)
     .setAuthor({ name: resolvedName, iconURL: ICONS.footer || undefined })

