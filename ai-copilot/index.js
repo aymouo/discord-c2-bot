@@ -12,7 +12,7 @@ const OLLAMA_URL = OLLAMA_BASE_URL || 'http://127.0.0.1:11434'
 const OLLAMA_MODEL_NAME = OLLAMA_MODEL || 'qwen2.5:7b'
 const CLAUDE_MODEL_NAME = CLAUDE_MODEL || 'claude-3-5-sonnet-20241022'
 const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
-const NVIDIA_MODEL_NAME = NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct'
+const NVIDIA_MODEL_NAME = NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
 
 const SHELL_PATTERNS = `
 USEFUL SHELL COMMANDS (use with !shell):
