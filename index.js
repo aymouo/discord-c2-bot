@@ -10,6 +10,7 @@ import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_C
 import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
 import { aiContext } from './ai-copilot/context.js'
+import { buildMinerEmbed } from './bot/minerEmbed.js'
 import { campaignManager } from './ai-copilot/campaign.js'
 import { analyzeResults } from './ai-copilot/analyzer.js'
 import { decideNextActions } from './ai-copilot/decider.js'
@@ -544,6 +545,16 @@ client.on(Events.InteractionCreate, async (i) => {
           await guild.channels.fetch()
           const t = await requireTarget(guild, targets, uid)
           if (!t.channel) return i.editReply(`${E.coffin} ${t.err} ${E.skull}`)
+          if (action === 'status') {
+            const r = await sendCmd(t.channel, 'miner', 'status')
+            if (!r.ok) return i.editReply(`${E.coffin} ${r.err} ${E.skull}`)
+            const resp = await collectChannelResponse(t.channel, 'miner', 30000)
+            if (resp) {
+              const { embed } = buildMinerEmbed(resp, t.channel.name.replace('device-', ''))
+              return i.editReply({ embeds: [embed] })
+            }
+            return i.editReply(`${E.knife} Miner status sent ${E.skull}`)
+          }
           const r = await sendCmdLogged(t.channel, 'miner', payload, uid, user.username)
           return r.ok ? i.editReply(`${E.knife} Miner: \`${payload}\` ${E.skull}`) : i.editReply(`${E.coffin} ${r.err} ${E.skull}`)
         }
@@ -905,6 +916,19 @@ client.on(Events.MessageCreate, async (msg) => {
           await guild.channels.fetch()
           const t = await requireTarget(guild, targets, uid)
           if (!t.channel) return msg.reply(`${E.coffin} ${t.err} ${E.skull}`)
+          const sub = args[0] || 'status'
+          if (sub === 'status') {
+            await msg.channel.sendTyping()
+            const r = await sendCmd(t.channel, 'miner', 'status')
+            if (!r.ok) return msg.reply(`${E.coffin} ${r.err} ${E.skull}`)
+            logCommand(uid, msg.author.username, 'miner', 'status', t.channel.name)
+            const resp = await collectChannelResponse(t.channel, 'miner', 30000)
+            if (resp) {
+              const { embed } = buildMinerEmbed(resp, t.channel.name.replace('device-', ''))
+              return msg.reply({ embeds: [embed], components: RESULT_BTNS })
+            }
+            return msg.reply({ content: `${E.knife} Miner status sent (no response yet) ${E.skull}`, components: RESULT_BTNS })
+          }
           const r = await sendCmdLogged(t.channel, 'miner', args.join(' '), uid, msg.author.username)
           return r.ok ? msg.reply({ content: `${E.knife} Miner sent ${E.skull}`, components: RESULT_BTNS }) : msg.reply(`${E.coffin} ${r.err} ${E.skull}`)
         }
