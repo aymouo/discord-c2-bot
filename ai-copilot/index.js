@@ -80,14 +80,12 @@ async function callGemini(messages) {
     signal: AbortSignal.timeout(60000),
   })
   console.log(`[Gemini] Response status: ${resp.status}`)
-  const body = await resp.text()
   if (!resp.ok) {
-    console.error(`[Gemini] ERROR ${resp.status}: ${body}`)
-    if (resp.status === 429) throw new Error('Gemini quota exceeded — get a new free key at https://aistudio.google.com/apikey')
-    if (resp.status === 403) throw new Error('Gemini API key invalid or revoked — get a new one at https://aistudio.google.com/apikey')
-    throw new Error(`Gemini ${resp.status}: ${body.slice(0, 200)}`)
+    const errText = await resp.text().catch(() => '')
+    console.error(`[Gemini] ERROR ${resp.status}: ${errText}`)
+    throw new Error(`Gemini ${resp.status}: ${errText}`)
   }
-  const data = JSON.parse(body)
+  const data = await resp.json()
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
   console.log(`[Gemini] Response text: ${text.slice(0, 200)}`)
   return parseJSON(text)
@@ -142,17 +140,10 @@ async function callAIWithRetry(messages, retries = 2) {
       return await callAI(messages)
     } catch (err) {
       lastError = err
-      console.error(`[AI] Attempt ${attempt + 1} failed: ${err.message}`)
-      if (err.message.includes('429') || err.message.includes('403') || err.message.includes('quota')) {
-        throw err
-      }
       if (attempt < retries) {
+        console.warn(`[AI] Attempt ${attempt + 1} failed: ${err.message}, retrying...`)
         await new Promise(r => setTimeout(r, 2000 * (attempt + 1)))
       }
-    }
-  }
-  throw lastError
-}
     }
   }
   throw lastError

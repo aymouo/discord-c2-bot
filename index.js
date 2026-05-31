@@ -943,9 +943,8 @@ client.on(Events.MessageCreate, async (msg) => {
             const text = response.analysis ? `**Analysis:** ${response.analysis}\n\n**Proposed:**\n${cmdList}` : `**Proposed:**\n${cmdList}`
             return msg.reply({ ...bloodEmbed(bold('🤖 AI'), 'warning', text), components: actionRow(btn(`ai_approve_${uid}`, 'APPROVE', '✅', 'success'), btn(`ai_reject_${uid}`, 'REJECT', '❌', 'danger')) })
           } catch (err) {
-            console.error(`[AI] ERROR:`, err.message)
-            const errMsg = err.message.length > 1900 ? err.message.slice(0, 1900) + '...' : err.message
-            return msg.reply(`${E.coffin} AI error: ${errMsg} ${E.skull}`)
+            console.error(`[AI] ERROR:`, err.message, err.stack?.slice(0, 500))
+            return msg.reply(`${E.coffin} AI error: ${err.message} ${E.skull}`)
           }
         }
         case '!campaign': {
