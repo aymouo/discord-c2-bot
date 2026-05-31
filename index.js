@@ -1206,6 +1206,13 @@ client.on(Events.ChannelCreate, async (ch) => {
   }
 })
 
+// ── Health check endpoint for Railway ─────────────────────────────────
+import express from 'express'
+const healthApp = express()
+healthApp.get('/', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }))
+const PORT = process.env.PORT || 8000
+healthApp.listen(PORT, () => console.log(`[Health] Listening on :${PORT}`))
+
 // ── Graceful shutdown ──────────────────────────────────────────────────
 process.on('SIGINT', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
 process.on('SIGTERM', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
