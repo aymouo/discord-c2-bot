@@ -1,0 +1,10 @@
+node_modules
+.git
+.gitignore
+.env
+.env.*
+*.md
+discord-c2-bot_backup
+test-apks
+__pycache__
+*.pyc
