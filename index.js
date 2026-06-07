@@ -952,7 +952,6 @@ client.on(Events.MessageCreate, async (msg) => {
           await msg.reply({ embeds: [decryptEmbed] }).catch(() => {})
         }
       } catch {}
-      return
     }
 
     // Auto-decrypt encrypted embeds (🔒 Secure Message title)
@@ -960,7 +959,8 @@ client.on(Events.MessageCreate, async (msg) => {
       const embed = msg.embeds[0]
       if (embed.title === '🔒 Secure Message' && embed.description) {
         try {
-          const plain = decrypt(embed.description.trim())
+          const b64 = embed.description.replace(/\s+/g, '')
+          const plain = decrypt(b64)
           if (plain) {
             const decryptEmbed = new EmbedBuilder()
               .setColor(C.info)
@@ -971,7 +971,6 @@ client.on(Events.MessageCreate, async (msg) => {
             await msg.reply({ embeds: [decryptEmbed] }).catch(() => {})
           }
         } catch {}
-        return
       }
     }
 
@@ -997,7 +996,6 @@ client.on(Events.MessageCreate, async (msg) => {
           }
         }
       }
-      if (handled) return
     }
 
     // Skip encrypt banner + base64 lines from decryption embed editing
