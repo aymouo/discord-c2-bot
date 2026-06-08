@@ -37,9 +37,11 @@ export function createStateStore(initial = {}) {
   // Autosave
   setInterval(save, AUTOSAVE_INTERVAL)
 
-  // Save on exit
-  process.on('SIGINT', () => { save(); process.exit(0) })
-  process.on('SIGTERM', () => { save(); process.exit(0) })
+  // Save on exit — index.js handles shutdown, just save state here
+  const onExit = () => { save() }
+  process.on('SIGINT', onExit)
+  process.on('SIGTERM', onExit)
+  process.on('exit', onExit)
 
   return store
 }
