@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://media.tenor.com/pCtCujYcqTT/gabimaru-fire.gif" width="100%" alt="Shinsenkyo Banner">
+  <img src="https://media.tenor.com/0qHYA8Ol28I/gabimaru-ninpou.gif" width="100%" alt="Shinsenkyo Banner">
 </p>
 
 <h1 align="center">⚔️ SHINSENKYO ⚔️</h1>
