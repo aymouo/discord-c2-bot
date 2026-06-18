@@ -3,6 +3,14 @@ import { EmbedBuilder } from 'discord.js'
 
 export function novaEmbed(title, status = 'info', desc = '', opts = {}) {
   const color = C[status] || C.blood
+  const gif = randGif()
+  const embeds = []
+  if (gif && !opts.noImage) {
+    const gifEmbed = new EmbedBuilder().setColor(C.void)
+    if (opts.gif) gifEmbed.setImage(opts.gif)
+    else gifEmbed.setImage(gif)
+    embeds.push(gifEmbed)
+  }
   const e = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
@@ -13,11 +21,12 @@ export function novaEmbed(title, status = 'info', desc = '', opts = {}) {
   if (opts.fields) e.addFields(opts.fields)
   if (opts.author) e.setAuthor(opts.author)
   if (opts.timestamp) e.setTimestamp()
-  return { embeds: [e] }
+  embeds.push(e)
+  return { embeds }
 }
 
 export function novaLogoEmbed(status = 'online', extra = '') {
   return novaEmbed(`${E.torii}  S H I N S E N K Y O  C 2  ${E.sakura}`, status,
     `${E.ghost} **${status === 'online' ? 'TAO FLOW' : 'STANDBY'}** ${E.sakura}\n\n${extra || ''}`,
-    { footer: `🌸  ${ts()}  ─────────────────`, image: randGif() })
+    { footer: `🌸  ${ts()}  ─────────────────` })
 }

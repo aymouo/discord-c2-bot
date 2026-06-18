@@ -21,6 +21,9 @@ export function paginationRow(disabled = false) {
 }
 
 export function bloodEmbed(title, status, desc, opts = {}) {
+  const gif = randGif()
+  const gifEmbed = new EmbedBuilder().setColor(C.void)
+  if (gif) gifEmbed.setImage(gif)
   const e = new EmbedBuilder()
     .setColor(ST_COL[status] || C.blood)
     .setTitle(title)
@@ -28,7 +31,7 @@ export function bloodEmbed(title, status, desc, opts = {}) {
     .setFooter({ text: opts.footer || `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
   if (opts.thumb) e.setThumbnail(opts.thumb)
   if (opts.image) e.setImage(opts.image)
-  else if (!opts.noImage) e.setImage(randGif())
   if (opts.fields) e.addFields(opts.fields)
-  return { embeds: [e] }
+  if (opts.noImage) return { embeds: [e] }
+  return { embeds: [gifEmbed, e] }
 }
