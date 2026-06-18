@@ -245,9 +245,10 @@ async function sendToTarget(uid, guild, cmd, payload) {
 function menuEmbed() {
   const onlineCount = [...deviceStatus.values()].filter(s => s.online === true).length
   const totalDevices = deviceStatus.size
+  const gifUrl = randGif()
   return {
     embeds: [
-      new EmbedBuilder().setColor(C.void).setImage(randGif()),
+      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setImage(gifUrl)] : []),
       new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO C2 ${E.sakura}`)
@@ -277,9 +278,10 @@ function menuEmbed() {
 }
 
 function helpEmbed() {
+  const gifUrl = randGif()
   return {
     embeds: [
-      new EmbedBuilder().setColor(C.void).setImage(randGif()),
+      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setImage(gifUrl)] : []),
       new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO — COMMAND GRIMOIRE`)
@@ -304,7 +306,7 @@ function helpEmbed() {
 function victimListEmbed(desc, onlineCount, totalCount, page = 1, totalPages = 1) {
   return bloodEmbed(bold(`${E.sakura} VICTIMS: ${totalCount}`), onlineCount > 0 ? 'online' : 'offline',
     desc,
-    { footer: `${smallCaps('page')} ${page}/${totalPages} ${E.sakura} ${onlineCount}/${totalCount} flowing`, noImage: true })
+    { footer: `${smallCaps('page')} ${page}/${totalPages} ${E.sakura} ${onlineCount}/${totalCount} flowing` })
 }
 
 function buildDevicePages(guild) {
