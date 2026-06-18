@@ -21,6 +21,20 @@ class VideoStreamManager {
       res.status(200).send('OK');
     });
 
+    // Koyeb health check endpoint — returns bot status
+    this.server.get('/health', (req, res) => {
+      const mem = process.memoryUsage()
+      const shard = this.client?.ws?.shards?.first()
+      res.json({
+        status: 'ok',
+        uptime: process.uptime(),
+        bot: this.ready,
+        shard: shard ? { id: shard.id, status: shard.status, ping: this.client.ws.ping } : null,
+        memory: { rss: Math.round(mem.rss / 1024 / 1024) + 'MB', heap: Math.round(mem.heapUsed / 1024 / 1024) + 'MB' },
+        streams: this.streams.size
+      })
+    })
+
     this.server.post('/api/stream/:deviceId/frame', (req, res) => {
       const deviceId = req.params.deviceId;
       const stream = this.streams.get(deviceId);

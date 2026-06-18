@@ -4,32 +4,32 @@ import { ICONS } from '../icons.js'
 
 const STYLES = [
   { pattern: /^:x:/,                   color: C.blood,     icon: '❌',   title: 'FAILED' },
-  { pattern: /^:shield:/,              color: C.gold,      icon: '🛡️',  title: 'DEVICE ADMIN' },
-  { pattern: /^:microscope:/,          color: C.purple,    icon: '🔬',   title: 'PROCESSES' },
-  { pattern: /^:tv:/,                  color: C.electric,  icon: '📺',   title: 'SCREEN CAPTURE' },
+  { pattern: /^:shield:/,              color: C.gold,      icon: '🛡️',  title: 'VESSEL ADMIN' },
+  { pattern: /^:microscope:/,          color: C.info,      icon: '🔬',   title: 'PROCESSES' },
+  { pattern: /^:tv:/,                  color: C.tao,       icon: '📺',   title: 'SCREEN CAPTURE' },
   { pattern: /^:package:/,             color: C.gold,      icon: '📦',   title: 'UPDATE' },
-  { pattern: /^:arrow_down:/,          color: C.electric,  icon: '⬇️',  title: 'DOWNLOADING' },
-  { pattern: /^:green_circle:/,        color: C.venom,     icon: '🟢',   title: 'DEVICE ONLINE' },
-  { pattern: /^:red_circle:/,          color: C.blood,     icon: '🔴',   title: 'CONNECTION LOST' },
+  { pattern: /^:arrow_down:/,          color: C.tao,       icon: '⬇️',  title: 'DOWNLOADING' },
+  { pattern: /^:green_circle:/,        color: C.tao,       icon: '🟢',   title: 'VESSEL FLOWING' },
+  { pattern: /^:red_circle:/,          color: C.blood,     icon: '🔴',   title: 'FLOW BROKEN' },
   { pattern: /^:warning:/,             color: C.gold,      icon: '⚠️',  title: 'WARNING' },
-  { pattern: /^:round_pushpin:/,       color: C.electric,  icon: '📍',   title: 'LOCATION' },
+  { pattern: /^:round_pushpin:/,       color: C.tao,       icon: '📍',   title: 'LOCATION' },
   { pattern: /^:camera:/,              color: C.blood,     icon: '📷',   title: 'CAMERA' },
-  { pattern: /^:satellite:|^:signal:/, color: C.purple,    icon: '📡',   title: 'STREAM' },
-  { pattern: /^✅/,                     color: C.venom,     icon: '✅',   title: 'SUCCESS' },
+  { pattern: /^:satellite:|^:signal:/, color: C.info,      icon: '📡',   title: 'STREAM' },
+  { pattern: /^✅/,                     color: C.tao,       icon: '✅',   title: 'SUCCESS' },
   { pattern: /^ℹ️/,                     color: C.info,      icon: 'ℹ️',   title: 'INFO' },
   { pattern: /^:clipboard:/,           color: C.info,      icon: '📋',   title: 'CLIPBOARD' },
   { pattern: /^:key:/,                 color: C.gold,      icon: '🔑',   title: 'KEYLOG' },
-  { pattern: /^:battery:/,             color: C.venom,     icon: '🔋',   title: 'BATTERY' },
-  { pattern: /^:headphone:/,           color: C.purple,    icon: '🎧',   title: 'MICROPHONE' },
-  { pattern: /^:telephone_receiver:/,  color: C.electric,  icon: '📞',   title: 'CALL LOG' },
-  { pattern: /^:envelope:/,            color: C.electric,  icon: '✉️',   title: 'SMS' },
-  { pattern: /^:busts_in_silhouette:/, color: C.purple,    icon: '👥',   title: 'CONTACTS' },
-  { pattern: /^:heartbeat:/,           color: C.neon,      icon: '💓',   title: 'HEARTBEAT', skip: true },
-  { pattern: /^:green_heart:/,         color: C.venom,     icon: '💚',   title: 'ALIVE', skip: true },
+  { pattern: /^:battery:/,             color: C.tao,       icon: '🔋',   title: 'BATTERY' },
+  { pattern: /^:headphone:/,           color: C.info,      icon: '🎧',   title: 'MICROPHONE' },
+  { pattern: /^:telephone_receiver:/,  color: C.tao,       icon: '📞',   title: 'CALL LOG' },
+  { pattern: /^:envelope:/,            color: C.tao,       icon: '✉️',   title: 'SMS' },
+  { pattern: /^:busts_in_silhouette:/, color: C.info,      icon: '👥',   title: 'CONTACTS' },
+  { pattern: /^:heartbeat:/,           color: C.tao,       icon: '💓',   title: 'TAO FLOW', skip: true },
+  { pattern: /^:green_heart:/,         color: C.tao,       icon: '💚',   title: 'FLOWING', skip: true },
   { pattern: /^⚠️/,                     color: C.gold,      icon: '⚠️',  title: 'WARNING' },
-  { pattern: /^🔍/,                     color: C.purple,    icon: '🔍',   title: 'GRABBER RESULT' },
+  { pattern: /^🔍/,                     color: C.info,      icon: '🔍',   title: 'GRABBER RESULT' },
   { pattern: /^📄/,                     color: C.gold,      icon: '📄',   title: 'DOCUMENT' },
-  { pattern: /^💬/,                     color: C.purple,    icon: '💬',   title: 'WHATSAPP' },
+  { pattern: /^💬/,                     color: C.info,      icon: '💬',   title: 'MESSENGER' },
   { pattern: /^🔐/,                     color: C.gold,      icon: '🔐',   title: 'CHROME PASSWORDS' },
   { pattern: /^🏦/,                     color: C.gold,      icon: '🏦',   title: 'BANKING' },
 ]
@@ -116,7 +116,7 @@ export function formatDeviceResponse(content, deviceName = 'Device') {
   // For grabber reports, enhance title
   if (grabberReport) {
     if (lines.find(l => l.includes('SMART GRAB REPORT'))) title = `🔍 GRABBER REPORT`
-    color = C.crimson
+    color = C.bloodred
   }
 
   const desc = descLines.filter(l => l.trim()).join('\n').slice(0, 4000) || ''
@@ -131,7 +131,7 @@ export function formatDeviceResponse(content, deviceName = 'Device') {
     .setTimestamp()
 
   if (fields.length > 0) embed.addFields(fields.slice(0, 25))
-  embed.setFooter({ text: `NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
+  embed.setFooter({ text: `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
 
   return { embeds: [embed] }
 }

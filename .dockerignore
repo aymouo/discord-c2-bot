@@ -1,10 +1,8 @@
 node_modules
+npm-debug.log
 .git
-.gitignore
-.env
-.env.*
 *.md
-discord-c2-bot_backup
-test-apks
-__pycache__
-*.pyc
+.env
+bot_state.json
+.gitignore
+railway.json

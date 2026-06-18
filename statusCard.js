@@ -20,6 +20,11 @@ const THEMES = {
     bg1: '#0A0A1A', bg2: '#050510', accent: '#00F0FF',
     text: '#FFFFFF', textSec: '#E0E0E0', textMuted: '#B0B0B0',
     cardBg: 'rgba(0, 0, 0, 0.6)', glow: '#00F0FF'
+  },
+  shinsenkyo: {
+    bg1: '#0D0D0D', bg2: '#1A0A0A', accent: '#8B0000',
+    text: '#F5F0E8', textSec: '#E8B4B8', textMuted: '#8A7A6A',
+    cardBg: 'rgba(0, 0, 0, 0.45)', glow: '#2FFFD4'
   }
 }
 
@@ -138,10 +143,10 @@ function drawNovaLogo(ctx, x, y, size, theme) {
   ctx.fillStyle = theme.accent
   ctx.shadowColor = theme.glow
   ctx.shadowBlur = 15
-  ctx.fillText('NOVA', x, y)
+  ctx.fillText('SHINSE', x, y)
   ctx.shadowBlur = 8
   ctx.fillStyle = theme.text
-  ctx.fillText('-C2', x + ctx.measureText('NOVA').width, y)
+  ctx.fillText('NKYO', x + ctx.measureText('SHINSE').width, y)
   ctx.restore()
 }
 
@@ -231,7 +236,7 @@ export async function statusCard(opts = {}) {
   ctx.fillStyle = t.accent + '15'
   ctx.font = 'bold 12px Arial'
   ctx.textAlign = 'right'
-  ctx.fillText('NOVA-C2 v3.1', w - 30, h - 15)
+  ctx.fillText('SHINSENKYO v3.1', w - 30, h - 15)
   ctx.restore()
 
   return canvas.toBuffer('image/png')

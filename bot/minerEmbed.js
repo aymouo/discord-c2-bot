@@ -1,7 +1,6 @@
 import { EmbedBuilder } from 'discord.js'
-import { C, E, ts } from '../utils/index.js'
+import { C, E, ts, randGif } from '../utils/index.js'
 import { ICONS } from '../icons.js'
-import { randGif } from '../utils/index.js'
 
 const XMR_BLOCK_REWARD = 0.6
 const XMR_BLOCKS_PER_DAY = 720
@@ -55,14 +54,14 @@ export function buildMinerEmbed(text, deviceName) {
   const weekly = daily * 7
   const monthly = daily * 30
 
-  const color = isRunning ? C.neon : C.void
+  const color = isRunning ? C.tao : C.void
   const statusEmoji = isRunning ? '🟢' : '🔴'
   const poolEmoji = poolOk ? '🌐' : '⏳'
 
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(`${E.pick} MINER STATUS — ${deviceName}`)
-    .setThumbnail(randGif())
+    .setImage(randGif())
     .addFields(
       { name: `${statusEmoji} Status`, value: `\`${status}\` • ${uptime}`, inline: true },
       { name: '🧵 Threads', value: `\`${threads}\``, inline: true },
@@ -92,7 +91,7 @@ export function buildMinerEmbed(text, deviceName) {
     embed.addFields({ name: '💳 Wallet', value: `\`${wallet}\``, inline: false })
   }
 
-  embed.setFooter({ text: `${E.skull} NOVA-C2 ⚡ ${ts()}`, iconURL: ICONS.footer || undefined })
+  embed.setFooter({ text: `🌸  ${ts()}  ─────────────────`, iconURL: ICONS.footer || undefined })
     .setTimestamp()
 
   return { embed, isRunning }
