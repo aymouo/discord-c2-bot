@@ -248,7 +248,7 @@ function menuEmbed() {
   const gifUrl = randGif()
   return {
     embeds: [
-      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setImage(gifUrl)] : []),
+      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setDescription(' ').setImage(gifUrl)] : []),
       new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO C2 ${E.sakura}`)
@@ -281,7 +281,7 @@ function helpEmbed() {
   const gifUrl = randGif()
   return {
     embeds: [
-      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setImage(gifUrl)] : []),
+      ...(gifUrl ? [new EmbedBuilder().setColor(C.void).setDescription(' ').setImage(gifUrl)] : []),
       new EmbedBuilder()
       .setColor(C.blood)
       .setTitle(`${E.torii} SHINSENKYO — COMMAND GRIMOIRE`)

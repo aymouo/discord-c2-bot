@@ -6,7 +6,7 @@ export function novaEmbed(title, status = 'info', desc = '', opts = {}) {
   const gif = randGif()
   const embeds = []
   if (gif && !opts.noImage) {
-    const gifEmbed = new EmbedBuilder().setColor(C.void)
+    const gifEmbed = new EmbedBuilder().setColor(C.void).setDescription(' ')
     if (opts.gif) gifEmbed.setImage(opts.gif)
     else gifEmbed.setImage(gif)
     embeds.push(gifEmbed)

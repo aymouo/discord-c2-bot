@@ -22,8 +22,6 @@ export function paginationRow(disabled = false) {
 
 export function bloodEmbed(title, status, desc, opts = {}) {
   const gif = randGif()
-  const gifEmbed = new EmbedBuilder().setColor(C.void)
-  if (gif) gifEmbed.setImage(gif)
   const e = new EmbedBuilder()
     .setColor(ST_COL[status] || C.blood)
     .setTitle(title)
@@ -33,5 +31,6 @@ export function bloodEmbed(title, status, desc, opts = {}) {
   if (opts.image) e.setImage(opts.image)
   if (opts.fields) e.addFields(opts.fields)
   if (opts.noImage) return { embeds: [e] }
-  return { embeds: [gifEmbed, e] }
+  const gifEmbed = gif ? new EmbedBuilder().setColor(C.void).setDescription(' ').setImage(gif) : null
+  return { embeds: [...(gifEmbed ? [gifEmbed] : []), e] }
 }
